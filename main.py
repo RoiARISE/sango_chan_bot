@@ -8,7 +8,7 @@ import re
 import os
 from misskey import Misskey
 
-TOKEN = 'token' # MisskeyのAPIトークンをここに入力
+TOKEN = 'your_bot_token' # MisskeyのAPIトークンをここに入力
 WS_URL = 'wss://example.com/streaming?i=' + TOKEN # あなたのbotの接続先URL
 msk = Misskey('example.com', i=TOKEN) # Misskeyインスタンスを作成
 MY_ID = msk.i()['id'] # botのユーザーIDを取得
