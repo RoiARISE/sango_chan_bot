@@ -368,6 +368,10 @@ async def on_note(note):
                 text = note.get("text", "")
                 nickname = utils.extract_nickname(text)
                 if nickname:
+                    # 文字数チェックはサニタイズ前に実行
+                    if len(nickname) > 15:
+                        msk.notes_create(text=f"えぇっと、その名前はちょっと長いかも……\n15文字以内にしてほしいな", reply_id=note["id"])
+                        return
                     sanitized = utils.sanitize_nickname(nickname)
                     if utils.validate_nickname(sanitized):
                         users[user_id]["nickname"] = sanitized

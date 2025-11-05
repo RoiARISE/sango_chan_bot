@@ -37,8 +37,6 @@ def sanitize_nickname(name: str) -> str:
 def validate_nickname(name: str) -> bool:
     if len(name) == 0:
         return False
-    if len(name) > 30:
-        return False
     if name.isspace():
         return False
     return True

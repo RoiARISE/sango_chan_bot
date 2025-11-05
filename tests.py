@@ -22,7 +22,6 @@ class Tests(unittest.TestCase):
         ]
         invalid_nicknames = [
             "\u202e",
-            "VeryVeryVeryVeryVeryVeryLongName",
             "　",
             " 　 　",
         ]
