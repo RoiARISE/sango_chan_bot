@@ -20,6 +20,8 @@ ADMIN_ID = "example1234567"  # 管理者のユーザーIDを設定
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NICKNAME_FILE = os.path.join(BASE_DIR, "nickname.json")
 
+MAX_NICKNAME_LENGTH = 15  # あだ名の最大文字数
+
 # JSONロード
 try:
     with open(NICKNAME_FILE, "r", encoding="utf-8") as f:
@@ -296,49 +298,63 @@ async def on_note(note):
     if note["user"]["id"] == MY_ID: #連鎖反応事故防止
         return
 
+    text = note.get("text", "")
+    user = note['user']
+    userid = user['username'] # ユーザーのID(@user_id)を取得
+    host = user.get('host') # ユーザーのホスト名(@example.com)を取得
+    user = note["user"]["username"]
+    vis = note.get("visibility", "public")
+
+    if host:
+        user_mention = f"@{userid}@{host}" # リモートユーザーなら「@user_id@example.com」と表示されるはず
+    else:
+        user_mention = f"@{userid}" # ローカルユーザーなら「@user_id」とだけ表示されるはず
+
+    match = re.search(r"(\d+)d(\d+)", text.lower())
+
     if note.get('mentions'): # メンションされるかつ同じワードが含まれているときに返信するやつ
         if MY_ID in note['mentions']:
             if "はじめまして" in note['text']:
-                msk.notes_create(text='はじめまして、わたしを見つけてくれてありがとう。これからよろしくね', reply_id=note['id'])
+                msk.notes_create(text='はじめまして、わたしを見つけてくれてありがとう。これからよろしくね', reply_id=note['id'], visibility=vis)
                 return
             if "こんにちは" in note['text']:
-                msk.notes_create(text='こんにちは、どうしたの？', reply_id=note['id'])
+                msk.notes_create(text='こんにちは、どうしたの？', reply_id=note['id'], visibility=vis)
                 return
             if "自己紹介" in note['text'] or "あなたは？" in note['text']:
-                msk.notes_create(text='わたしはここ「3.5Mbps.net」の看板娘、さんごです。……看板娘は自称だけどね\nあなたのことも、さんごに教えて欲しいな', reply_id=note['id'])
+                msk.notes_create(text='わたしはここ「3.5Mbps.net」の看板娘、さんごです。……看板娘は自称だけどね\nあなたのことも、さんごに教えて欲しいな', reply_id=note['id'], visibility=vis)
                 return
             if "よしよし" in note['text'] or "なでなで" in note['text']:
-                msk.notes_create(text="わたしの頭なんか撫でて、楽しい？ えっと、あなたが喜んでくれるなら、いいんだけど……", reply_id=note['id'])
+                msk.notes_create(text="わたしの頭なんか撫でて、楽しい？ えっと、あなたが喜んでくれるなら、いいんだけど……", reply_id=note['id'], visibility=vis)
                 return
             if "にゃーん" in note['text']:
-                msk.notes_create(text="にゃ〜ん", reply_id=note['id'])
+                msk.notes_create(text="にゃ〜ん", reply_id=note['id'], visibility=vis)
                 return
             if "今何時" in note['text'] or "いまなんじ" in note['text'] and not note['replyId']:
                 from datetime import datetime
                 now = datetime.now()
-                msk.notes_create(text=f'いまは {now.hour}:{now.minute}:{now.second} だよ。どうしたの……？ 時計を見る元気もない感じかな？', reply_id=note['id'])
+                msk.notes_create(text=f'いまは {now.hour}:{now.minute}:{now.second} だよ。どうしたの……？ 時計を見る元気もない感じかな？', reply_id=note['id'], visibility=vis)
                 return
             if "罵って" in note['text']:
-                msk.notes_create(text=ToYou(), reply_id=note['id'])
+                msk.notes_create(text=ToYou(), reply_id=note['id'], visibility=vis)
                 return
             if "さんごちゃーん" in note['text'] or "さんごちゃ〜ん" in note['text']:
                 await asyncio.sleep(1)
-                msk.notes_create(text='は〜い', reply_id=note['id'])
+                msk.notes_create(text='は〜い', reply_id=note['id'], visibility=vis)
                 return
             if "何が好き？" in note['text'] and note['replyId']:
                 await asyncio.sleep(1)
-                msk.notes_create(text='チョココーヒー よりもあ・な・た♪', reply_id=note['id'])
+                msk.notes_create(text='チョココーヒー よりもあ・な・た♪', reply_id=note['id'], visibility=vis)
                 await asyncio.sleep(10)
                 msk.notes_create(text='さっきのなに……？')
                 return
             if "ちくわ大明神" in note['text'] and note['replyId']:
-                msk.notes_create(text='…なに？', reply_id=note['id'])
+                msk.notes_create(text='…なに？', reply_id=note['id'], visibility=vis)
                 return
             if "ping" in note['text']:
-                msk.notes_create(text='pong？', reply_id=note['id'])
+                msk.notes_create(text='pong？', reply_id=note['id'], visibility=vis)
                 return
             if "回線速度計測" in note['text']: # 現在接続しているインターネットの回線速度を計測する機能
-                if note["user"]["id"] == ADMIN_ID: # プロフィールの「RAW」にある「ID」で判断。これを設定すると機能を自分専用にできる。多分もっといい方法があるはず
+                if note["user"]["id"] == ADMIN_ID: # プロフィールから「RAW」を開いて、「ID」の部分をコピーして貼り付ける。これを設定すると機能を自分専用にできる
                     import speedtest 
                     msk.notes_create(text="了解。じゃあ計測してくるね", reply_id=note['id'])
                     st = speedtest.Speedtest()
@@ -347,11 +363,12 @@ async def on_note(note):
                     upload_speed = st.upload() / 1024 / 1024  # Mbpsに変換
                     ping = st.results.ping
                     speed_result =f"計測かんりょー。下り{download_speed:.2f}Mbps、上り{upload_speed:.2f}Mbps、ping値{ping:.2f}msだったよ。……これは速いって言えるのかな？"
-                    msk.notes_create(text=speed_result)
+                    msk.notes_create(text=speed_result, renote_id=note['id'])
                     return
                 else:
                     msk.notes_create(text="この機能は使える人が限られてるんだ。ゴメンね", reply_id=note['id'])
                     return 
+                    
             if "todo" in note['text']:
                 print("todoを検知")
                 # noteのidとuser_idをスレッドに渡す
@@ -369,7 +386,7 @@ async def on_note(note):
                 nickname = utils.extract_nickname(text)
                 if nickname:
                     # 文字数チェックはサニタイズ前に実行
-                    if len(nickname) > 15:
+                    if len(nickname) > MAX_NICKNAME_LENGTH:
                         msk.notes_create(text=f"えぇっと、その名前はちょっと長いかも……\n15文字以内にしてほしいな", reply_id=note["id"])
                         return
                     sanitized = utils.sanitize_nickname(nickname)
@@ -402,8 +419,24 @@ async def on_note(note):
                 user_id = note["user"]["id"]
                 mentioner = msk.users_show(user_id=note['userId']) 
                 name = get_name(user_id, mentioner, users)
-                msk.notes_create(text=f"どうしたの？ {name}さん", reply_id=note['id'])
+                msk.notes_create(text=f"どうしたの？ {name}さん", reply_id=note['id'], visibility=vis)
                 return
+            
+
+            if not match:
+                return
+            count, sides = match.groups()
+            rolls = roll_dice(count, sides)
+
+            if not rolls:
+                return
+           # 出力：1個ならその数値、複数ならカンマ区切り
+            if len(rolls) == 1:
+                reply = f"{rolls[0]} だよ"
+            else:
+                reply = f"{', '.join(map(str, rolls))} だよ"
+
+            msk.notes_create(reply_id=note["id"],text=f"{user_mention} {reply}")
             
 
     else:
