@@ -77,7 +77,9 @@ def get_name(user_id, user_data, users):
 
     # Misskey APIからのユーザー情報を使う
     if "name" in user_data and user_data["name"]:
-        return user_data["name"]  # ✅ 表示名があるならそちらを優先
+        sanitized = utils.sanitize_nickname(user_data["name"]) # 表示名に変な文字が入っていた場合
+        if utils.validate_nickname(sanitized):
+            return sanitized  # ✅ 表示名があるならそちらを優先
     return user_data["username"]  # fallback
 
 def GoWork():
