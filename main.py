@@ -4,9 +4,10 @@ import websockets
 import random
 import threading
 import time
-import re
 import os
 from misskey import Misskey
+
+import utils
 
 TOKEN = 'your_bot_token' # MisskeyのAPIトークンをここに入力
 WS_URL = 'wss://example.com/streaming?i=' + TOKEN # あなたのbotの接続先URL
@@ -62,14 +63,6 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 users = load_data()
-
-def extract_nickname(text):
-    text = re.sub(r"@\S+", "", text)
-    match = re.search(r"(.+?)(?:と呼んで|って呼んで)", text)
-    if match:
-        nickname = match.group(1).strip("、。 \n")
-        return nickname
-    return None
 
 # ===== あだ名取得 =====
 def get_name(user_id, user_data, users):
@@ -371,11 +364,15 @@ async def on_note(note):
                 users = load_data()
                 user_id = note["user"]["id"]
                 text = note.get("text", "")
-                nickname = extract_nickname(text)
+                nickname = utils.extract_nickname(text)
                 if nickname:
-                    users[user_id]["nickname"] = nickname
-                    save_data(users)
-                    msk.notes_create(text=f"わかった。これからは{nickname}さんって呼ぶね\nこれからもよろしくね、{nickname}さん", reply_id=note["id"])
+                    sanitized = utils.sanitize_nickname(nickname)
+                    if utils.validate_nickname(sanitized):
+                        users[user_id]["nickname"] = sanitized
+                        save_data(users)
+                        msk.notes_create(text=f"わかった。これからは{sanitized}さんって呼ぶね\nこれからもよろしくね、{sanitized}さん", reply_id=note["id"])
+                    else:
+                        msk.notes_create(text=f"えぇっと、その名前はちょっと……だめかも……", reply_id=note["id"])
                     return
                 
             if "呼び名を忘れて" in note['text'] or "あだ名を消して" in note['text']:
