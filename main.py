@@ -4,9 +4,10 @@ import websockets
 import random
 import threading
 import time
-import re
 import os
 from misskey import Misskey
+
+import utils
 
 TOKEN = 'your_bot_token' # MisskeyのAPIトークンをここに入力
 WS_URL = 'wss://example.com/streaming?i=' + TOKEN # あなたのbotの接続先URL
@@ -65,14 +66,6 @@ def save_data(data):
 
 users = load_data()
 
-def extract_nickname(text):
-    text = re.sub(r"@\S+", "", text)
-    match = re.search(r"(.+?)(?:と呼んで|って呼んで)", text)
-    if match:
-        nickname = match.group(1).strip("、。 \n")
-        return nickname
-    return None
-
 # ===== あだ名取得 =====
 def get_name(user_id, user_data, users):
     """#登録済みならあだ名、なければ表示名→ユーザーネームの順"""
@@ -86,7 +79,9 @@ def get_name(user_id, user_data, users):
 
     # Misskey APIからのユーザー情報を使う
     if "name" in user_data and user_data["name"]:
-        return user_data["name"]  # ✅ 表示名があるならそちらを優先
+        sanitized = utils.sanitize_nickname(user_data["name"]) # 表示名に変な文字が入っていた場合
+        if utils.validate_nickname(sanitized):
+            return sanitized  # ✅ 表示名があるならそちらを優先
     return user_data["username"]  # fallback
 
 def GoWork():
@@ -310,8 +305,6 @@ async def on_note(note):
     user = note["user"]["username"]
     vis = note.get("visibility", "public")
 
-    nickname = extract_nickname(text)
-
     if host:
         user_mention = f"@{userid}@{host}" # リモートユーザーなら「@user_id@example.com」と表示されるはず
     else:
@@ -385,24 +378,24 @@ async def on_note(note):
                     daemon=True
                 ).start()
                 return  
-
-            if nickname:
-                if "#" in nickname or "%" in nickname or "&" in nickname or "*" in nickname or "@" in nickname or "!" in nickname or "$" in nickname or " " in nickname or "　" in nickname:
-                    msk.notes_create(text=f"うーん…、だれか変なことしてる？")
-                    return
-   
-                if len(nickname) > MAX_NICKNAME_LENGTH:
-                    msk.notes_create(text=f"えぇっと、その名前はちょっと長いかも……\n{MAX_NICKNAME_LENGTH}文字以内にしてほしいな",reply_id=note["id"])
-                    return
             
             if "って呼んで" in note['text'] or "と呼んで" in note['text']:
                 users = load_data()
                 user_id = note["user"]["id"]
                 text = note.get("text", "")
+                nickname = utils.extract_nickname(text)
                 if nickname:
-                    users[user_id]["nickname"] = nickname
-                    save_data(users)
-                    msk.notes_create(text=f"わかった。これからは{nickname}さんって呼ぶね\nこれからもよろしくね、{nickname}さん", reply_id=note["id"])
+                    # 文字数チェックはサニタイズ前に実行
+                    if len(nickname) > MAX_NICKNAME_LENGTH:
+                        msk.notes_create(text=f"えぇっと、その名前はちょっと長いかも……\n{MAX_NICKNAME_LENGTH}文字以内にしてほしいな", reply_id=note["id"])
+                        return
+                    sanitized = utils.sanitize_nickname(nickname)
+                    if utils.validate_nickname(sanitized):
+                        users[user_id]["nickname"] = sanitized
+                        save_data(users)
+                        msk.notes_create(text=f"わかった。これからは{sanitized}さんって呼ぶね\nこれからもよろしくね、{sanitized}さん", reply_id=note["id"])
+                    else:
+                        msk.notes_create(text=f"えぇっと、その名前はちょっと……だめかも……", reply_id=note["id"])
                     return
                 
             if "呼び名を忘れて" in note['text'] or "あだ名を消して" in note['text']:
