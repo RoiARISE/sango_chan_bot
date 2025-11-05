@@ -34,7 +34,6 @@ class Tests(unittest.TestCase):
         for invalid in invalid_nicknames:
             sanitized = sanitize_nickname(invalid)
             self.assertFalse(validate_nickname(sanitized))
-        pass
 
 
 if __name__ == "__main__":
