@@ -172,9 +172,6 @@ async def main_task():
                 }))
                 print("[main_task] Subscribed to main and homeTimeline")
 
-                # keep_aliveを同一接続で動かす
-                asyncio.create_task(keep_alive(ws))
-
                 while True:
                     data = json.loads(await ws.recv())
 
@@ -212,17 +209,7 @@ async def runner_task():
     while True:
         await asyncio.sleep(3600)
 
-
-# ===== Pingを同一接続内で定期的に送るという、無理くりなやり口 =====
-async def keep_alive(ws):
-    while True:
-        try:
-            await asyncio.sleep(600)
-            await ws.send(json.dumps({"type": "ping"}))
-            #print("[keep_alive] Sent ping")
-        except Exception as e:
-            print("[keep_alive] Ping error:", e)
-            break
+#async def keep_alive(ws):は不要となったため削除
 
 async def on_follow(user):
     # ここでは何もしない（メンションで指示されたら後記の「followback(note)」が対応）
