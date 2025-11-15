@@ -211,3 +211,4 @@ nickname.json
 .env
 *.db
 *.sqlite
+config_example.env
