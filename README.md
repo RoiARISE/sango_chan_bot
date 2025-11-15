@@ -7,7 +7,8 @@ Roi_ARISEによって創作された敷島ロイの子。できることは[wiki
 このbotはMisskey.pyを使用しています。[Misskey.py](https://github.com/YuzuRyo61/Misskey.py).
 
 ## ライセンス
-MIT License
+このプロジェクトのソースコードはMIT Licenseのもと、改変して利用・再配布することを許可します。
+ただし、オリジナルのまま（無改変）の再配布は禁止します。改変したコードを公開する場合は、改変点がある旨を明記してください。ただしフォークはこの限りではありません。
 
 ## クレジット
 - **Misskey.py** by [YuzuRyo61](https://github.com/YuzuRyo61/Misskey.py) (MIT)
