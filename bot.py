@@ -3,7 +3,6 @@ import json
 import re
 import random
 import threading
-import time
 import queue
 from typing import cast, Callable
 
@@ -66,32 +65,6 @@ class MyBot:
         if user_data and user_data.get("username"):  # 最後にユーザー名
             return user_data["username"]
         return user_id  # それでもなければIDを返す
-
-    def _delayed_reply(self, note_id, user_id, vis, delay):
-        """
-        指定時間後にリマインド投稿を行う（別スレッドで実行される）。
-        """
-        try:
-            # 1. 待機 (これは別スレッドなので time.sleep でOKらしい)
-            print(f"Todoリマインダー スレッド開始 (待機 {delay}秒): {note_id}")
-            time.sleep(delay)
-
-            # 2. テキスト準備
-            text_to_send = 'これやった？'
-            if user_id == self.admin_id:
-                text_to_send = '管理者ちゃん、これやった？'
-
-            # 3. visibility に応じて引用/リプライを切り替え
-            print(f"Todoリマインダー実行 (vis: {vis}): {note_id}")
-            if vis == "followers":
-                # フォロワー限定投稿だった場合は「リプライ」
-                self.msk.notes_create(text=text_to_send, reply_id=note_id, visibility=vis)
-            else:
-                # それ以外は「引用」
-                self.msk.notes_create(text=text_to_send, renote_id=note_id, visibility=vis)
-        except Exception as e:
-            # APIエラー（ノートが削除されたなど）が起きても落とさない
-            print(f"delayed_reply スレッド エラー: {e}")
 
     # --- イベントハンドラ ---
     async def _on_followed(self, user):
@@ -310,7 +283,7 @@ class MyBot:
                     )
                     result_queue = queue.Queue()
                     threading.Thread(target=responses.run_speedtest, args=(result_queue,), daemon=True).start()
-                    time.sleep(10)
+                    await asyncio.sleep(10)
                     await asyncio.to_thread(
                         self.msk.notes_create,
                         text="計測中だよ、いまは話しかけないでね……"
@@ -364,12 +337,26 @@ class MyBot:
             if "todo" in text:
                 print("todoを検知")
                 note_id = note["id"]
+
+                text_to_send = 'これやった？'
+                if user_id == self.admin_id:
+                    text_to_send = '管理者ちゃん、これやった？'
+
                 delay = 60  # 待機時間
+                # 1. 待機
+                print(f"Todoリマインダー 開始 (待機 {delay}秒): {note_id}")
+                await asyncio.sleep(delay)
 
-                threading.Thread(target=self._delayed_reply, args=(note_id, user_id, vis, delay), daemon=True).start()
-
+                # 2. visibility に応じて引用/リプライを切り替え
+                print(f"Todoリマインダー実行 (vis: {vis}): {note_id}")
+                if vis == "followers":
+                    # フォロワー限定投稿だった場合は「リプライ」
+                    self.msk.notes_create(text=text_to_send, reply_id=note_id, visibility=vis)
+                else:
+                    # それ以外は「引用」
+                    self.msk.notes_create(text=text_to_send, renote_id=note_id, visibility=vis)
             if ("さんごちゃーん" in text or "さんごちゃ〜ん" in text):
-                time.sleep(1)
+                await asyncio.sleep(1)
                 await asyncio.to_thread(
                     self.msk.notes_create,
                     text="は〜い",
@@ -379,14 +366,14 @@ class MyBot:
                 return  # 処理完了
 
             if "何が好き？" in text and is_reply:
-                time.sleep(1)  # 👈 1秒待機
+                await asyncio.sleep(1)  # 👈 1秒待機
                 await asyncio.to_thread(
                     self.msk.notes_create,
                     text="チョココーヒー よりもあ・な・た♪",
                     reply_id=note['id'],
                     visibility=vis
                 )
-                time.sleep(10)  # 👈 10秒待機
+                await asyncio.sleep(10)  # 👈 10秒待機
                 await asyncio.to_thread(
                     self.msk.notes_create,
                     text="さっきのなに……？"
