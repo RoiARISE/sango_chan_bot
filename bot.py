@@ -94,15 +94,16 @@ class MyBot:
             print(f"delayed_reply スレッド エラー: {e}")
 
     # --- イベントハンドラ ---
-    def _on_followed(self, user):
+    async def _on_followed(self, user):
         """フォローされたときの処理"""
         mention = self._create_mention_string(user)
-        self.msk.notes_create(
+        await asyncio.to_thread(
+            self.msk.notes_create,
             text=f"フォローありがとうございます、{mention}さん\n「フォローして」とメンションしながら投稿すると、フォローバックするよ"
         )
         print(f"フォローされました: {mention}")
 
-    def _on_mention(self, note):
+    async def _on_mention(self, note):
         """メンションを受け取ったときの処理"""
         user = note['user']
         text = note.get('text', '')
@@ -112,27 +113,39 @@ class MyBot:
 
             try:
                 # ユーザーとの関係性を取得
-                relation = self.msk.users_show(user_id=user_id)
+                relation = await asyncio.to_thread(self.msk.users_show, user_id=user_id)
                 relation = cast(dict, relation)
             except Exception as e:
                 print(f"Error fetching user relation: {e}")
-                self.msk.notes_create(text="ごめんね、今ちょっと調子が悪いみたい……", reply_id=note['id'])
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text="ごめんね、今ちょっと調子が悪いみたい……",
+                    reply_id=note['id']
+                )
                 return  # エラー時はここで処理終了
             # 1. 相手が自分をフォローしているか確認 (isFollowed)
             # (元のコードのロジックを再現)
             if not relation.get('isFollowed'):
-                self.msk.notes_create(text="……だれ？", reply_id=note['id'])
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text="……だれ？",
+                    reply_id=note['id']
+                )
                 return
             # 2. 自分が相手をフォローしているか確認 (isFollowing)
             if relation.get('isFollowing'):
                 # ヘルパーメソッドで名前を取得
                 name = self._get_user_display_name(user_id, user)
-                self.msk.notes_create(text=f"{name}さん、もうフォローしてるよー", reply_id=note['id'])
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text=f"{name}さん、もうフォローしてるよー",
+                    reply_id=note['id']
+                )
                 return
 
             # 3. (フォローされていて、フォローしていない場合) フォローバック実行
             try:
-                self.msk.following_create(user_id=user_id)
+                await asyncio.to_thread(self.msk.following_create, user_id=user_id)
 
                 # nicknamesに登録
                 if user_id not in self.nicknames:
@@ -143,12 +156,20 @@ class MyBot:
                 # ヘルパーメソッドで名前とメンション文字列を取得
                 name = self._get_user_display_name(user_id, user)
                 mention = self._create_mention_string(user)
-                self.msk.notes_create(text=f'{mention} フォローバックしたよ、{name}さん。これからよろしくね', reply_id=note['id'])
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text=f'{mention} フォローバックしたよ、{name}さん。これからよろしくね',
+                    reply_id=note['id']
+                )
                 print(f"{name} さんをフォローしました。")
 
             except Exception as e:
                 print(f"フォロー作成エラー: {e}")
-                self.msk.notes_create(text="フォローしようとしたけど、うまくいかなかったみたい……", reply_id=note['id'])
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text="フォローしようとしたけど、うまくいかなかったみたい……",
+                    reply_id=note['id']
+                )
             return
 
         # --- フォロー解除処理 ---
@@ -156,7 +177,7 @@ class MyBot:
             user_id = user['id']
 
             try:
-                relation = self.msk.users_show(user_id=user_id)
+                relation = await asyncio.to_thread(self.msk.users_show, user_id=user_id)
                 relation = cast(dict, relation)
             except Exception as e:
                 print(f"Error fetching user relation: {e}")
@@ -164,10 +185,14 @@ class MyBot:
 
             if relation.get('isFollowing'):   # フォローしてる場合
                 mention = self._create_mention_string(user)
-                self.msk.notes_create(text=f'{mention} さよなら、になっちゃうのかな……', reply_id=note['id'])
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text=f'{mention} さよなら、になっちゃうのかな……',
+                    reply_id=note['id']
+                )
 
                 try:
-                    self.msk.following_delete(user_id=user_id)
+                    await asyncio.to_thread(self.msk.following_delete, user_id=user_id)
                     print(f"{user.get('username')} さんのフォローを解除しました")
 
                     if user_id in self.nicknames:
@@ -177,13 +202,21 @@ class MyBot:
 
                 except Exception as e:
                     print(f"フォロー解除またはJSON削除エラー: {e}")
-                    self.msk.notes_create(text="フォロー解除しようとしたけど、うまくいかなかったみたい……", reply_id=note['id'])
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text="フォロー解除しようとしたけど、うまくいかなかったみたい……",
+                        reply_id=note['id']
+                    )
             else:  # 未フォローの場合
                 mention = self._create_mention_string(user)
-                self.msk.notes_create(text=f"{mention} もともとフォローしてないよー", reply_id=note['id'])
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text=f"{mention} もともとフォローしてないよー",
+                    reply_id=note['id']
+                )
             return
 
-    def _on_timeline_note(self, note):
+    async def _on_timeline_note(self, note):
         """ホームタイムラインのノートに対する処理 (homeTimeline)"""
         if not note.get("text") or note.get('renoteId') or note["user"]["id"] == self.my_id:
             return
@@ -202,10 +235,16 @@ class MyBot:
             if "って呼んで" in text or "と呼んで" in text:
                 nickname = utils.extract_nickname(text)
                 if not nickname:
-                    self.msk.notes_create(text="えっと、名前がうまく聞き取れなかったかも……", reply_id=note["id"], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text="えっと、名前がうまく聞き取れなかったかも……",
+                        reply_id=note["id"],
+                        visibility=vis
+                    )
                     return
                 if len(nickname) > config.MAX_NICKNAME_LENGTH:
-                    self.msk.notes_create(
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
                         text=f"えぇっと、その名前はちょっと長いかも……\n{config.MAX_NICKNAME_LENGTH}文字以内にしてほしいな",
                         reply_id=note["id"],
                         visibility=vis
@@ -213,13 +252,19 @@ class MyBot:
                     return
                 sanitized = utils.sanitize_nickname(nickname)
                 if not utils.validate_nickname(sanitized):
-                    self.msk.notes_create(text="えぇっと、その名前はちょっと……、だめかも……", reply_id=note["id"], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text="えぇっと、その名前はちょっと……、だめかも……",
+                        reply_id=note["id"],
+                        visibility=vis
+                    )
                     return
                 if user_id not in self.nicknames:
                     self.nicknames[user_id] = {"username": user.get("username", "")}
                 self.nicknames[user_id]["nickname"] = sanitized
                 self._save_nicknames()
-                self.msk.notes_create(
+                await asyncio.to_thread(
+                    self.msk.notes_create,
                     text=f"わかった。これからは{sanitized}さんって呼ぶね\nこれからもよろしくね、{sanitized}さん",
                     reply_id=note["id"],
                     visibility=vis
@@ -234,28 +279,42 @@ class MyBot:
                     self._save_nicknames()
 
                     try:
-                        mentioner_data = self.msk.users_show(user_id=user_id)
+                        mentioner_data = await asyncio.to_thread(self.msk.users_show, user_id=user_id)
                         new_name = self._get_user_display_name(user_id, mentioner_data)
                     except Exception:
                         new_name = user.get("username", "user_id")
 
-                    self.msk.notes_create(
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
                         text=f"うん、「{old_nickname}」さんって呼び方は忘れたよ。これからは{new_name}さんって呼ぶね",
                         reply_id=note["id"],
                         visibility=vis
                     )
                     print(f"あだ名をリセット: {user_id}")
                 else:
-                    self.msk.notes_create(text="もともと特別な呼び名は登録されていないみたいだよ", reply_id=note["id"], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text="もともと特別な呼び名は登録されていないみたいだよ",
+                        reply_id=note["id"],
+                        visibility=vis
+                    )
                 return
 
             if "回線速度" in text and "計測" in text:
                 if user_id == self.admin_id:  # 管理者かどうかをチェック
-                    self.msk.notes_create(text="了解。じゃあ計測してくるね", reply_id=note['id'], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text="了解。じゃあ計測してくるね",
+                        reply_id=note['id'],
+                        visibility=vis
+                    )
                     result_queue = queue.Queue()
                     threading.Thread(target=responses.run_speedtest, args=(result_queue,), daemon=True).start()
                     time.sleep(10)
-                    self.msk.notes_create(text="計測中だよ、いまは話しかけないでね……")
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text="計測中だよ、いまは話しかけないでね……"
+                    )
 
                     try:
                         speed_result = result_queue.get(timeout=60)  # (タイムアウトを60秒=1分に設定)
@@ -263,18 +322,43 @@ class MyBot:
                             raise Exception(speed_result)
 
                         if vis == "followers":
-                            self.msk.notes_create(text=speed_result, reply_id=note['id'], visibility=vis)
+                            await asyncio.to_thread(
+                                self.msk.notes_create,
+                                text=speed_result,
+                                reply_id=note['id'],
+                                visibility=vis
+                            )
                         else:
-                            self.msk.notes_create(text=speed_result, renote_id=note['id'], visibility=vis)
+                            await asyncio.to_thread(
+                                self.msk.notes_create,
+                                text=speed_result,
+                                renote_id=note['id'],
+                                visibility=vis
+                            )
 
                     except queue.Empty:
                         print("Speedtest エラー: タイムアウト")
-                        self.msk.notes_create(text="ごめん、計測が1分経っても終わらないみたい……", reply_id=note['id'], visibility=vis)
+                        await asyncio.to_thread(
+                            self.msk.notes_create,
+                            text="ごめん、計測が1分経っても終わらないみたい……",
+                            reply_id=note['id'],
+                            visibility=vis
+                        )
                     except Exception as e:
                         print(f"Speedtest エラー: {e}")
-                        self.msk.notes_create(text=str(e), reply_id=note['id'], visibility=vis)  # e (エラーメッセージ) を投稿
+                        await asyncio.to_thread(
+                            self.msk.notes_create,
+                            text=str(e),
+                            reply_id=note['id'],
+                            visibility=vis
+                        )
                 else:
-                    self.msk.notes_create(text="この機能は使える人が限られてるんだ。ゴメンね", reply_id=note['id'], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text="この機能は使える人が限られてるんだ。ゴメンね",
+                        reply_id=note['id'],
+                        visibility=vis
+                    )
                 return
 
             if "todo" in text:
@@ -286,14 +370,27 @@ class MyBot:
 
             if ("さんごちゃーん" in text or "さんごちゃ〜ん" in text):
                 time.sleep(1)
-                self.msk.notes_create(text="は〜い", reply_id=note['id'], visibility=vis)
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text="は〜い",
+                    reply_id=note['id'],
+                    visibility=vis
+                )
                 return  # 処理完了
 
             if "何が好き？" in text and is_reply:
                 time.sleep(1)  # 👈 1秒待機
-                self.msk.notes_create(text="チョココーヒー よりもあ・な・た♪", reply_id=note['id'], visibility=vis)
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text="チョココーヒー よりもあ・な・た♪",
+                    reply_id=note['id'],
+                    visibility=vis
+                )
                 time.sleep(10)  # 👈 10秒待機
-                self.msk.notes_create(text="さっきのなに……？")
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text="さっきのなに……？"
+                )
                 return
 
             # リストの全項目を3個のタプルに統一 ▼▼▼
@@ -320,7 +417,12 @@ class MyBot:
                 if any(kw in text for kw in keywords):
                     if callable(response):
                         response = response()
-                    self.msk.notes_create(text=response, reply_id=note['id'], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text=response,
+                        reply_id=note['id'],
+                        visibility=vis
+                    )
                     return
 
             if match:
@@ -328,7 +430,12 @@ class MyBot:
                 rolls = responses.roll_dice(count_str, sides_str)
                 if not rolls:
                     # (上限を超えたか、0d0 だった場合)
-                    self.msk.notes_create(text="……うーん？", reply_id=note["id"], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text="……うーん？",
+                        reply_id=note["id"],
+                        visibility=vis
+                    )
                 else:
                     if len(rolls) == 1:
                         reply = f"{rolls[0]} だよ"
@@ -336,7 +443,12 @@ class MyBot:
                         reply = f"{', '.join(map(str, rolls))} だよ"
 
                     user_mention = self._create_mention_string(user)
-                    self.msk.notes_create(text=f"{user_mention} {reply}", reply_id=note["id"], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text=f"{user_mention} {reply}",
+                        reply_id=note["id"],
+                        visibility=vis
+                    )
             return
 
         # 2. "exact" モード用に、投稿の前後を掃除
@@ -417,9 +529,18 @@ class MyBot:
                 # --- 応答処理 ---
                 if callable(response):
                     response = response()
-                self.msk.notes_create(text=response, reply_id=note['id'], visibility=vis)
+                await asyncio.to_thread(
+                    self.msk.notes_create,
+                    text=response,
+                    reply_id=note['id'],
+                    visibility=vis
+                )
                 if response == ":galtu:":
-                    self.msk.notes_reactions_create(note_id=note['id'], reaction=response)
+                    await asyncio.to_thread(
+                        self.msk.notes_reactions_create,
+                        note_id=note['id'],
+                        reaction=response
+                    )
                     return
                 return
 
@@ -430,7 +551,12 @@ class MyBot:
                 after = parts[1].strip()  # 後ろの文章を取得
                 if before or after:
                     name = self._get_user_display_name(user_id, user)
-                    self.msk.notes_create(text=f"呼んだ？ {name}さん", reply_id=note["id"], visibility=vis)
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text=f"呼んだ？ {name}さん",
+                        reply_id=note["id"],
+                        visibility=vis
+                    )
                     return
 
     # --- メインループ ---
@@ -448,39 +574,40 @@ class MyBot:
         # 同期呼び出しを to_thread で非同期実行 ▼▼▼
         await asyncio.to_thread(self._sync_followings)
 
-        while True:
-            try:
-                async with websockets.connect(config.WS_URL) as ws:
-                    print("WebSocketに接続しました。イベントを待機します...")
-                    await ws.send(json.dumps({
-                        "type": "connect", "body": {"channel": "main", "id": "main"}
-                    }))
-                    await ws.send(json.dumps({
-                        "type": "connect", "body": {"channel": "homeTimeline", "id": "home"}
-                    }))
+        async with asyncio.TaskGroup() as tg:
+            while True:
+                try:
+                    async with websockets.connect(config.WS_URL) as ws:
+                        print("WebSocketに接続しました。イベントを待機します...")
+                        await ws.send(json.dumps({
+                            "type": "connect", "body": {"channel": "main", "id": "main"}
+                        }))
+                        await ws.send(json.dumps({
+                            "type": "connect", "body": {"channel": "homeTimeline", "id": "home"}
+                        }))
 
-                    while True:
-                        data = json.loads(await ws.recv())
-                        if data.get("type") != "channel":
-                            continue
+                        while True:
+                            data = json.loads(await ws.recv())
+                            if data.get("type") != "channel":
+                                continue
 
-                        body = data["body"]
-                        event_type = body.get("type")
-                        event_body = body.get("body")
-                        channel_id = body.get("id")
+                            body = data["body"]
+                            event_type = body.get("type")
+                            event_body = body.get("body")
+                            channel_id = body.get("id")
 
-                        # イベント処理を to_thread で非同期実行 ▼▼▼
-                        if channel_id == "main":
-                            if event_type == "followed":
-                                await asyncio.to_thread(self._on_followed, event_body)
-                            elif event_type == "mention":
-                                await asyncio.to_thread(self._on_mention, event_body)
-                        elif channel_id == "home" and event_type == "note":
-                            await asyncio.to_thread(self._on_timeline_note, event_body)
+                            # イベント処理を to_thread で非同期実行 ▼▼▼
+                            if channel_id == "main":
+                                if event_type == "followed":
+                                    tg.create_task(self._on_followed(event_body))
+                                elif event_type == "mention":
+                                    tg.create_task(self._on_mention(event_body))
+                            elif channel_id == "home" and event_type == "note":
+                                tg.create_task(self._on_timeline_note(event_body))
 
-            except websockets.exceptions.ConnectionClosed as e:
-                print(f"[main_task] ConnectionClosed: code={e.code}, reason={e.reason}")
-                await asyncio.sleep(5)
-            except Exception as e:
-                print("[main_task] Error:", e)
-                await asyncio.sleep(5)
+                except websockets.exceptions.ConnectionClosed as e:
+                    print(f"[main_task] ConnectionClosed: code={e.code}, reason={e.reason}")
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    print("[main_task] Error:", e)
+                    await asyncio.sleep(5)
