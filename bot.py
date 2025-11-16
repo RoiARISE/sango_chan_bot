@@ -5,6 +5,7 @@ import random
 import threading
 import time
 import queue
+from typing import cast, Callable
 
 import websockets
 from misskey import Misskey
@@ -112,6 +113,7 @@ class MyBot:
             try:
                 # ユーザーとの関係性を取得
                 relation = self.msk.users_show(user_id=user_id)
+                relation = cast(dict, relation)
             except Exception as e:
                 print(f"Error fetching user relation: {e}")
                 self.msk.notes_create(text="ごめんね、今ちょっと調子が悪いみたい……", reply_id=note['id'])
@@ -155,6 +157,7 @@ class MyBot:
 
             try:
                 relation = self.msk.users_show(user_id=user_id)
+                relation = cast(dict, relation)
             except Exception as e:
                 print(f"Error fetching user relation: {e}")
                 return  # エラー時は処理終了
@@ -295,7 +298,7 @@ class MyBot:
                 return
 
             # リストの全項目を3個のタプルに統一 ▼▼▼
-            mention_command_list = [
+            mention_command_list: list[tuple[tuple[str, ...], str | Callable[[], str], bool | None]] = [
                 # ( (キーワード,), "応答", リプライ制限 )
                 (("はじめまして",), "はじめまして、わたしを見つけてくれてありがとう。これからよろしくね", None),
                 (("こんにちは",), "こんにちは、どうしたの？", None),
@@ -342,7 +345,7 @@ class MyBot:
         # 3. "context" モード用の文字数上限
         CONTEXT_LIMIT = 10  # 👈 前後に5文字まで許容 (この数字は自由に変更してください)
         # 4. タイムラインキーワードの定義 (一致モードで分ける)
-        timeline_keywords = [
+        timeline_keywords: list[tuple[tuple[str, ...], str | Callable[[], str], bool | None, str]] = [
             # ( (キーワード,), "応答", リプライ制限, 一致モード )
 
             # --- "exact" (完全一致) ---
@@ -413,12 +416,12 @@ class MyBot:
                     if random.randint(1, 3) != 1:
                         continue
                 # --- 応答処理 ---
-                if response == ":galtu:":
-                    self.msk.notes_reactions_create(note_id=note['id'], reaction=response)
-                    return
                 if callable(response):
                     response = response()
                 self.msk.notes_create(text=response, reply_id=note['id'], visibility=vis)
+                if response == ":galtu:":
+                    self.msk.notes_reactions_create(note_id=note['id'], reaction=response)
+                    return
                 return
 
         if "さんごちゃん" in text:
