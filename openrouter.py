@@ -1,9 +1,6 @@
 import httpx
 
-ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-
-API_KEY = "Put your OpenRouter API key here"  # OpenRouterのAPIキーをここに入力
-LLM_MODEL = "mistralai/mistral-medium-3.1"  # 使用したいモデル名 / TODO: いいかんじに置き換えてください
+import config
 
 # TODO: いいかんじに置き換えてください
 SYSTEM_PROMPT = """\
@@ -24,12 +21,12 @@ async def chat_oneshot(prompt: str) -> str:
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
-                url=ENDPOINT,
+                url=f"{config.LLM_ENDPOINT}/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {API_KEY}",
+                    "Authorization": f"Bearer {config.LLM_API_KEY}",
                 },
                 json={
-                    "model": LLM_MODEL,
+                    "model": config.LLM_MODEL,
                     "messages": [
                         {
                             "role": "system",

@@ -9,6 +9,11 @@ TOKEN = os.getenv('TOKEN')
 INSTANCE_URL = os.getenv('INSTANCE')
 WS_URL = f'wss://{INSTANCE_URL}/streaming?i={TOKEN}'
 
+# --- LLM関連 ---
+LLM_ENDPOINT = os.getenv('LLM_ENDPOINT')
+LLM_API_KEY = os.getenv('LLM_API_KEY')
+LLM_MODEL = os.getenv('LLM_MODEL')
+
 # --- Bot設定 ---
 ADMIN_ID = os.getenv('ADMIN_ID')
 MAX_NICKNAME_LENGTH = 15
