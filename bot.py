@@ -166,7 +166,6 @@ class MyBot:
                 mention = self._create_mention_string(user)
                 self.msk.notes_create(text=f'{mention} さよなら、になっちゃうのかな……', reply_id=note['id'])
 
-                asyncio.sleep(10)  # 謎の10秒待機
                 try:
                     self.msk.following_delete(user_id=user_id)
                     print(f"{user.get('username')} さんのフォローを解除しました")
