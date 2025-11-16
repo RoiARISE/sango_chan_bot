@@ -266,7 +266,7 @@ class MyBot:
                             self.msk.notes_create(text=speed_result, renote_id=note['id'], visibility=vis)
 
                     except queue.Empty:
-                        print(f"Speedtest エラー: タイムアウト")
+                        print("Speedtest エラー: タイムアウト")
                         self.msk.notes_create(text="ごめん、計測が1分経っても終わらないみたい……", reply_id=note['id'], visibility=vis)
                     except Exception as e:
                         print(f"Speedtest エラー: {e}")
@@ -407,9 +407,11 @@ class MyBot:
             if matched:
                 # --- 確率・特殊処理 ---
                 if keywords == ("にゃーん",):
-                    if random.randint(1, 2) != 1: continue
+                    if random.randint(1, 2) != 1:
+                        continue
                 if keywords == ("ぬるぽ",):
-                    if random.randint(1, 3) != 1: continue
+                    if random.randint(1, 3) != 1:
+                        continue
                 # --- 応答処理 ---
                 if response == ":galtu:":
                     self.msk.notes_reactions_create(note_id=note['id'], reaction=response)
