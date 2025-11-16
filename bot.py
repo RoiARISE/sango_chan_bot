@@ -5,12 +5,12 @@ import random
 import threading
 import time
 import queue
+
 import websockets
 from misskey import Misskey
 
-import sango_chan_bot.config as config
-import sango_chan_bot.responses as responses
-import utils
+from sango_chan_bot import config, responses, utils
+
 
 class MyBot:
     def __init__(self):

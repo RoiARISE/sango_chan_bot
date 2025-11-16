@@ -1,6 +1,8 @@
 from datetime import datetime
-import speedtest
 import random
+
+import speedtest
+
 
 # 元のif文の羅列を、リストからランダムに選ぶ形に変更
 GO_WORK = [
