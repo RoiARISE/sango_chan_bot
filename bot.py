@@ -58,13 +58,13 @@ class MyBot:
 
     def _get_user_display_name(self, user_id, user_data=None):
         """あだ名、表示名、ユーザー名の順で名前を取得する"""
-        if user_id in self.nicknames and self.nicknames[user_id].get("nickname"): # あだ名を優先
+        if user_id in self.nicknames and self.nicknames[user_id].get("nickname"):  # あだ名を優先
             return self.nicknames[user_id]["nickname"]
-        if user_data and user_data.get("name"): # APIから取得した表示名を次に
+        if user_data and user_data.get("name"):  # APIから取得した表示名を次に
             return user_data["name"]
-        if user_data and user_data.get("username"): # 最後にユーザー名
+        if user_data and user_data.get("username"):  # 最後にユーザー名
             return user_data["username"]
-        return user_id # それでもなければIDを返す
+        return user_id  # それでもなければIDを返す
 
     def _delayed_reply(self, note_id, user_id, vis, delay):
         """
@@ -115,7 +115,7 @@ class MyBot:
             except Exception as e:
                 print(f"Error fetching user relation: {e}")
                 self.msk.notes_create(text="ごめんね、今ちょっと調子が悪いみたい……", reply_id=note['id'])
-                return # エラー時はここで処理終了
+                return  # エラー時はここで処理終了
             # 1. 相手が自分をフォローしているか確認 (isFollowed)
             # (元のコードのロジックを再現)
             if not relation.get('isFollowed'):
@@ -135,7 +135,7 @@ class MyBot:
                 # nicknamesに登録
                 if user_id not in self.nicknames:
                     self.nicknames[user_id] = {"nickname": "", "username": user.get("username", "")}
-                    self._save_nicknames() # クラスのメソッドで保存
+                    self._save_nicknames()  # クラスのメソッドで保存
                     print(f"JSONに {user.get('username')} さんを登録しました")
 
                 # ヘルパーメソッドで名前とメンション文字列を取得
@@ -157,26 +157,26 @@ class MyBot:
                 relation = self.msk.users_show(user_id=user_id)
             except Exception as e:
                 print(f"Error fetching user relation: {e}")
-                return # エラー時は処理終了
+                return  # エラー時は処理終了
 
-            if relation.get('isFollowing'): # フォローしてる場合
+            if relation.get('isFollowing'):   # フォローしてる場合
                 mention = self._create_mention_string(user)
                 self.msk.notes_create(text=f'{mention} さよなら、になっちゃうのかな……', reply_id=note['id'])
 
-                asyncio.sleep(10) # 謎の10秒待機
+                asyncio.sleep(10)  # 謎の10秒待機
                 try:
                     self.msk.following_delete(user_id=user_id)
                     print(f"{user.get('username')} さんのフォローを解除しました")
 
                     if user_id in self.nicknames:
                         del self.nicknames[user_id]
-                        self._save_nicknames() # 変更をJSONファイルに保存
-                        print(f"{user.get('username')} さんの情報をnickname.jsonから削除しました。") # JSONからユーザー情報を削除
+                        self._save_nicknames()  # 変更をJSONファイルに保存
+                        print(f"{user.get('username')} さんの情報をnickname.jsonから削除しました。")  # JSONからユーザー情報を削除
 
                 except Exception as e:
                     print(f"フォロー解除またはJSON削除エラー: {e}")
                     self.msk.notes_create(text="フォロー解除しようとしたけど、うまくいかなかったみたい……", reply_id=note['id'])
-            else: # 未フォローの場合
+            else:  # 未フォローの場合
                 mention = self._create_mention_string(user)
                 self.msk.notes_create(text=f"{mention} もともとフォローしてないよー", reply_id=note['id'])
             return
@@ -189,12 +189,12 @@ class MyBot:
         text = note["text"]
         user = note['user']
         user_id = user['id']
-        vis = note.get("visibility", "public") # 投稿範囲の設定
-        is_reply = note.get('replyId') is not None # リプを含めるか否か
+        vis = note.get("visibility", "public")  # 投稿範囲の設定
+        is_reply = note.get('replyId') is not None  # リプを含めるか否か
         match = re.search(r"(\d+)d(\d+)", text.lower())
         CHARS_TO_STRIP = " 　\n\t。、？！?!"
 
-        if self.my_id in note.get('mentions', []): # メンション処理
+        if self.my_id in note.get('mentions', []):  # メンション処理
 
             # --- あだ名設定処理 ---
             if "って呼んで" in text or "と呼んで" in text:
@@ -248,7 +248,7 @@ class MyBot:
                 return
 
             if "回線速度" in text and "計測" in text:
-                if user_id == self.admin_id: # 管理者かどうかをチェック
+                if user_id == self.admin_id:  # 管理者かどうかをチェック
                     self.msk.notes_create(text="了解。じゃあ計測してくるね", reply_id=note['id'], visibility=vis)
                     result_queue = queue.Queue()
                     threading.Thread(target=responses.run_speedtest, args=(result_queue,), daemon=True).start()
@@ -256,21 +256,21 @@ class MyBot:
                     self.msk.notes_create(text="計測中だよ、いまは話しかけないでね……")
 
                     try:
-                        speed_result = result_queue.get(timeout=60) # (タイムアウトを60秒=1分に設定)
+                        speed_result = result_queue.get(timeout=60)  # (タイムアウトを60秒=1分に設定)
                         if "ごめん、計測中にエラー" in speed_result:
                             raise Exception(speed_result)
 
                         if vis == "followers":
                             self.msk.notes_create(text=speed_result, reply_id=note['id'], visibility=vis)
                         else:
-                            self.msk.notes_create( text=speed_result, renote_id=note['id'], visibility=vis)
+                            self.msk.notes_create(text=speed_result, renote_id=note['id'], visibility=vis)
 
                     except queue.Empty:
                         print(f"Speedtest エラー: タイムアウト")
                         self.msk.notes_create(text="ごめん、計測が1分経っても終わらないみたい……", reply_id=note['id'], visibility=vis)
                     except Exception as e:
                         print(f"Speedtest エラー: {e}")
-                        self.msk.notes_create(text=str(e), reply_id=note['id'], visibility=vis) # e (エラーメッセージ) を投稿
+                        self.msk.notes_create(text=str(e), reply_id=note['id'], visibility=vis)  # e (エラーメッセージ) を投稿
                 else:
                     self.msk.notes_create(text="この機能は使える人が限られてるんだ。ゴメンね", reply_id=note['id'], visibility=vis)
                 return
@@ -278,19 +278,19 @@ class MyBot:
             if "todo" in text:
                 print("todoを検知")
                 note_id = note["id"]
-                delay = 60 # 待機時間
+                delay = 60  # 待機時間
 
                 threading.Thread(target=self._delayed_reply, args=(note_id, user_id, vis, delay), daemon=True).start()
 
             if ("さんごちゃーん" in text or "さんごちゃ〜ん" in text):
                 time.sleep(1)
                 self.msk.notes_create(text="は〜い", reply_id=note['id'], visibility=vis)
-                return # 処理完了
+                return  # 処理完了
 
             if "何が好き？" in text and is_reply:
-                time.sleep(1) # 👈 1秒待機
+                time.sleep(1)  # 👈 1秒待機
                 self.msk.notes_create(text="チョココーヒー よりもあ・な・た♪", reply_id=note['id'], visibility=vis)
-                time.sleep(10) # 👈 10秒待機
+                time.sleep(10)  # 👈 10秒待機
                 self.msk.notes_create(text="さっきのなに……？")
                 return
 
@@ -299,13 +299,13 @@ class MyBot:
                 # ( (キーワード,), "応答", リプライ制限 )
                 (("はじめまして",), "はじめまして、わたしを見つけてくれてありがとう。これからよろしくね", None),
                 (("こんにちは",), "こんにちは、どうしたの？", None),
-                (("自己紹介", "あなたは？"), "わたしはここ「3.SMbps.net」の看板娘、さんごです。……看板娘は自称だけどね\nあなたのことも、さんごに教えて欲しいな", None), # ← None を追加
+                (("自己紹介", "あなたは？"), "わたしはここ「3.SMbps.net」の看板娘、さんごです。……看板娘は自称だけどね\nあなたのことも、さんごに教えて欲しいな", None),  # ← None を追加
                 (("よしよし", "なでなで"), "わたしの頭なんか撫でて、楽しい？ えっと、あなたが喜んでくれるなら、いいんだけど……", None),
                 (("にゃーん",), "にゃ〜ん", None),
                 (("罵って",), responses.get_random_response('to_you_abuse'), None),
                 (("ping",), "pong？", None),
                 (("さんごちゃん？",), f"どうしたの？ {self._get_user_display_name(user_id, user)}さん", None),
-                ( ("今何時", "いまなんじ"), responses.get_current_time_response, None),
+                (("今何時", "いまなんじ"), responses.get_current_time_response, None),
                 (("ちくわ大明神",), "…なに？", True),
             ]
 
@@ -340,27 +340,27 @@ class MyBot:
         # 2. "exact" モード用に、投稿の前後を掃除
         cleaned_text = text.strip(CHARS_TO_STRIP)
         # 3. "context" モード用の文字数上限
-        CONTEXT_LIMIT = 10 # 👈 前後に5文字まで許容 (この数字は自由に変更してください)
+        CONTEXT_LIMIT = 10  # 👈 前後に5文字まで許容 (この数字は自由に変更してください)
         # 4. タイムラインキーワードの定義 (一致モードで分ける)
         timeline_keywords = [
             # ( (キーワード,), "応答", リプライ制限, 一致モード )
 
             # --- "exact" (完全一致) ---
-            ( ("おはよ",), f"おはよ、よく眠れた？ わたしは{responses.get_random_response('morning')}", False, "exact"),
-            ( ("おそよ",), "遅いよ、ねぼすけさん。なんで寝坊したのか、ちゃんと説明して？", False, "exact"),
-            ( ("二度寝",), responses.get_random_response('two_time_sleep'), False, "exact"),
-            ( ("にゃーん",), "にゃーん。……えへへ、わたしも混ぜて？", False, "exact"),
-            ( ("ぬるぽ",), ":galtu:", None, "exact"),
+            (("おはよ",), f"おはよ、よく眠れた？ わたしは{responses.get_random_response('morning')}", False, "exact"),
+            (("おそよ",), "遅いよ、ねぼすけさん。なんで寝坊したのか、ちゃんと説明して？", False, "exact"),
+            (("二度寝",), responses.get_random_response('two_time_sleep'), False, "exact"),
+            (("にゃーん",), "にゃーん。……えへへ、わたしも混ぜて？", False, "exact"),
+            (("ぬるぽ",), ":galtu:", None, "exact"),
 
             # --- "partial" (部分一致) ---
-            ( ("疲れた", "つかれた", "疲れてる", "つかれてる", "疲れている", "つかれている"), "ひとやすみ、する？ それとも、わたしが癒してあげよっか？", None, "partial"),
-            ( ("出勤",), responses.get_random_response('go_work'), None, "partial"),
-            ( ("退勤", "しごおわ"), "お仕事終わったの？ お疲れさま～。 ……わたしの癒し、必要かな？ 必要なら、いつでも言ってね", None, "partial"),
+            (("疲れた", "つかれた", "疲れてる", "つかれてる", "疲れている", "つかれている"), "ひとやすみ、する？ それとも、わたしが癒してあげよっか？", None, "partial"),
+            (("出勤",), responses.get_random_response('go_work'), None, "partial"),
+            (("退勤", "しごおわ"), "お仕事終わったの？ お疲れさま～。 ……わたしの癒し、必要かな？ 必要なら、いつでも言ってね", None, "partial"),
 
             # --- "context" (前後n文字まで許容) ---
-            ( ("眠い", "眠たい", "ねむ"), "なるほど、眠いんだね。……我慢はよくないよ？ 欲には素直にならないと", False, "context"),
-            ( ("つらい", "つらすぎ"), "つらいときは、甘えてもいいんだよ？", None, "context"),
-            ( ("おやすみ",), responses.get_random_response('good_night'), False, "context"),
+            (("眠い", "眠たい", "ねむ"), "なるほど、眠いんだね。……我慢はよくないよ？ 欲には素直にならないと", False, "context"),
+            (("つらい", "つらすぎ"), "つらいときは、甘えてもいいんだよ？", None, "context"),
+            (("おやすみ",), responses.get_random_response('good_night'), False, "context"),
         ]
 
         # 5. ループ処理 (一致モードで判定を分岐)
@@ -402,7 +402,7 @@ class MyBot:
                                 matched = False
 
                             if matched:
-                                break # 1つでも一致したらチェック終了
+                                break  # 1つでも一致したらチェック終了
 
             if matched:
                 # --- 確率・特殊処理 ---
@@ -422,8 +422,8 @@ class MyBot:
         if "さんごちゃん" in text:
             if random.randint(1, 3) == 1:
                 parts = text.split("さんごちゃん", 1)
-                before = parts[0].strip() # 前の文章を取得
-                after = parts[1].strip() # 後ろの文章を取得
+                before = parts[0].strip()  # 前の文章を取得
+                after = parts[1].strip()  # 後ろの文章を取得
                 if before or after:
                     name = self._get_user_display_name(user_id, user)
                     self.msk.notes_create(text=f"呼んだ？ {name}さん", reply_id=note["id"], visibility=vis)

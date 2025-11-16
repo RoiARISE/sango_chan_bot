@@ -31,6 +31,7 @@ TWO_TIME_SLEEP = [
     "30分後にアラームを設定。……よし、準備おっけー。じゃあ、わたしも二度寝しちゃおうかな……",
 ]
 
+
 def get_random_response(category):
     """指定されたカテゴリの応答リストからランダムに1つ返す"""
     responses_map = {
@@ -43,13 +44,15 @@ def get_random_response(category):
     }
     return random.choice(responses_map.get(category, [""]))
 
+
 def get_current_time_response():
     """現在時刻の応答メッセージを生成する"""
     now = datetime.now()
     # f'{now.minute:02}' のように :02 をつけると、1桁の数字が 01, 02 のように表示されます
     return f'いまは {now.hour}:{now.minute:02}:{now.second:02} だよ。どうしたの……？ 時計を見る元気もない感じかな？'
 
-def run_speedtest(result_queue): # 👈 引数に result_queue を追加
+
+def run_speedtest(result_queue):  # 👈 引数に result_queue を追加
     """
     回線速度を（同期的に）計測し、結果をキューに入れる関数。
     これは重たいので、必ず別スレッドで実行すること。
@@ -61,11 +64,12 @@ def run_speedtest(result_queue): # 👈 引数に result_queue を追加
         upload_speed = st.upload() / 1024 / 1024  # Mbps
         ping = st.results.ping
         result_str = f"計測かんりょー。下り{download_speed:.2f}Mbps、上り{upload_speed:.2f}Mbps、ping値{ping:.2f}msだったよ。……これは速いって言えるのかな？"
-        result_queue.put(result_str) # 👈 return の代わりに queue.put
+        result_queue.put(result_str)  # 👈 return の代わりに queue.put
     except Exception as e:
         # 👈 エラーもキューに入れる
         error_str = f"ごめん、計測中にエラーが起きちゃったみたい……\n`{e}`"
         result_queue.put(error_str)
+
 
 def roll_dice(count_str, sides_str):
     """
