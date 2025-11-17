@@ -511,12 +511,10 @@ class MyBot:
 
             if matched:
                 # --- 確率・特殊処理 ---
-                if keywords == ("にゃーん",):
-                    if random.randint(1, 2) != 1:
-                        continue
-                if keywords == ("ぬるぽ",):
-                    if random.randint(1, 3) != 1:
-                        continue
+                if keywords == ("にゃーん",) and random.randint(1, 2) != 1:
+                    continue
+                if keywords == ("ぬるぽ",) and random.randint(1, 3) != 1:
+                    continue
                 # --- 応答処理 ---
                 if callable(response):
                     response = response()
