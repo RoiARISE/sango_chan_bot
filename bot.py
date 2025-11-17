@@ -166,6 +166,8 @@ class MyBot:
                     reply_id=note['id']
                 )
 
+                await asyncio.sleep(10)  # 謎の10秒待機
+
                 try:
                     await asyncio.to_thread(self.msk.following_delete, user_id=user_id)
                     print(f"{user.get('username')} さんのフォローを解除しました")
