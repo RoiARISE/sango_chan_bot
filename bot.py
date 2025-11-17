@@ -9,7 +9,9 @@ from typing import cast, Callable
 import websockets
 from misskey import Misskey
 
-from sango_chan_bot import config, responses, utils
+import config
+import responses
+import utils
 
 
 class MyBot:
