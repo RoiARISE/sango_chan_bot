@@ -10,7 +10,7 @@ msk = Misskey(config.INSTANCE_URL, i=config.TOKEN)
 ADMIN_ID = config.ADMIN_ID
 
 if __name__ == "__main__":
-    sango_chan = MyBot()
+    sango_chan = MyBot(msk)
     try:
         asyncio.run(sango_chan.main_task())
     except KeyboardInterrupt:
