@@ -2,8 +2,8 @@ import asyncio
 
 from misskey import Misskey
 
-from sango_chan_bot import config
-from sango_chan_bot.bot import MyBot
+import config
+from bot import MyBot
 
 
 msk = Misskey(config.INSTANCE_URL, i=config.TOKEN)

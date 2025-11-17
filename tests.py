@@ -1,6 +1,6 @@
 import unittest
 
-from sango_chan_bot.utils import sanitize_nickname, validate_nickname
+from utils import sanitize_nickname, validate_nickname
 
 
 class Tests(unittest.TestCase):
