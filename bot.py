@@ -15,8 +15,8 @@ import utils
 
 
 class MyBot:
-    def __init__(self):
-        self.msk = Misskey(config.INSTANCE_URL, i=config.TOKEN)
+    def __init__(self, msk: Misskey):
+        self.msk = msk
         self.my_id = self.msk.i()['id']
         self.admin_id = config.ADMIN_ID
         self.nicknames = self._load_nicknames()
