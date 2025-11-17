@@ -12,14 +12,7 @@ def extract_nickname(text):
 
 def sanitize_nickname(name: str) -> str:
     return (
-        name.replace("<", "<\u200b")  # <center>、<plain>など
-        .replace("$", "$\u200b")  # $[で始まるMFM全般
-        .replace("://", ":\u200b//")  # リンク
-        .replace("](", "]\u200b(")  # リンク
-        .replace("#", "#\u200b")  # ハッシュタグ
-        .replace("@", "@\u200b")  # メンション
-        .replace("*", "*\u200b")  # 太字、イタリック
-        .replace("\u061c", "")  # Arabic letter mark
+        name.replace("\u061c", "")  # Arabic letter mark
         .replace("\u200e", "")  # Left-to-right mark
         .replace("\u200f", "")  # Right-to-left mark
         .replace("\u202a", "")  # Left-to-right embedding
@@ -31,6 +24,13 @@ def sanitize_nickname(name: str) -> str:
         .replace("\u2067", "")  # Right-to-left isolate
         .replace("\u2068", "")  # First strong isolate
         .replace("\u2069", "")  # Pop directional isolate
+        .replace("<", "<\u200b")  # <center>、<plain>など
+        .replace("$", "$\u200b")  # $[で始まるMFM全般
+        .replace("://", ":\u200b//")  # リンク
+        .replace("](", "]\u200b(")  # リンク
+        .replace("#", "#\u200b")  # ハッシュタグ
+        .replace("@", "@\u200b")  # メンション
+        .replace("*", "*\u200b")  # 太字、イタリック
     )
 
 

@@ -19,6 +19,10 @@ class Tests(unittest.TestCase):
                 "[ほげ](https://example.com)",
                 "[ほげ]\u200b(https:\u200b//example.com)",
             ],
+            [
+                "https:\u202e//example.com",
+                "https:\u200b//example.com",
+            ]
         ]
         invalid_nicknames = [
             "\u202e",
