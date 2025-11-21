@@ -2,8 +2,6 @@ import asyncio
 import json
 import re
 import random
-import threading
-import queue
 from typing import cast, Callable
 
 import websockets
@@ -285,16 +283,16 @@ class MyBot:
                         reply_id=note['id'],
                         visibility=vis
                     )
-                    result_queue = queue.Queue()
-                    threading.Thread(target=responses.run_speedtest, args=(result_queue,), daemon=True).start()
-                    await asyncio.sleep(10)
-                    await asyncio.to_thread(
-                        self.msk.notes_create,
-                        text="計測中だよ、いまは話しかけないでね……"
-                    )
 
                     try:
-                        speed_result = result_queue.get(timeout=60)  # (タイムアウトを60秒=1分に設定)
+                        await asyncio.sleep(10)
+                        await asyncio.to_thread(
+                            self.msk.notes_create,
+                            text="計測中だよ、いまは話しかけないでね……"
+                        )
+
+                        speed_result = await asyncio.wait_for(responses.run_speedtest(), timeout=60)  # タイムアウトを60秒に設定
+
                         if "ごめん、計測中にエラー" in speed_result:
                             raise Exception(speed_result)
 
@@ -313,7 +311,7 @@ class MyBot:
                                 visibility=vis
                             )
 
-                    except queue.Empty:
+                    except asyncio.TimeoutError:
                         print("Speedtest エラー: タイムアウト")
                         await asyncio.to_thread(
                             self.msk.notes_create,
