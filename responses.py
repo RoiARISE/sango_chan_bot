@@ -1,3 +1,4 @@
+from asyncio import to_thread
 from datetime import datetime
 import random
 
@@ -52,23 +53,23 @@ def get_current_time_response():
     return f'いまは {now.hour}:{now.minute:02}:{now.second:02} だよ。どうしたの……？ 時計を見る元気もない感じかな？'
 
 
-def run_speedtest(result_queue):  # 👈 引数に result_queue を追加
+async def run_speedtest():
     """
     回線速度を（同期的に）計測し、結果をキューに入れる関数。
     これは重たいので、必ず別スレッドで実行すること。
     """
     try:
         st = speedtest.Speedtest(secure=True)
-        st.get_best_server()
-        download_speed = st.download() / 1024 / 1024  # Mbps
-        upload_speed = st.upload() / 1024 / 1024  # Mbps
+        await to_thread(st.get_best_server)
+        download_speed = await to_thread(st.download) / 1024 / 1024  # Mbps
+        upload_speed = await to_thread(st.upload) / 1024 / 1024  # Mbps
         ping = st.results.ping
         result_str = f"計測かんりょー。下り{download_speed:.2f}Mbps、上り{upload_speed:.2f}Mbps、ping値{ping:.2f}msだったよ。……これは速いって言えるのかな？"
-        result_queue.put(result_str)  # 👈 return の代わりに queue.put
+        return result_str
     except Exception as e:
         # 👈 エラーもキューに入れる
         error_str = f"ごめん、計測中にエラーが起きちゃったみたい……\n`{e}`"
-        result_queue.put(error_str)
+        return error_str
 
 
 def roll_dice(count_str, sides_str):
