@@ -1,0 +1,4 @@
+websockets
+misskey.py
+speedtest-cli
+python-dotenv

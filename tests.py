@@ -1,4 +1,5 @@
 import unittest
+
 from utils import sanitize_nickname, validate_nickname
 
 
