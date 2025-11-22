@@ -55,8 +55,7 @@ def get_current_time_response():
 
 async def run_speedtest():
     """
-    回線速度を（同期的に）計測し、結果をキューに入れる関数。
-    これは重たいので、必ず別スレッドで実行すること。
+    回線速度を計測する非同期関数
     """
     try:
         st = speedtest.Speedtest(secure=True)
