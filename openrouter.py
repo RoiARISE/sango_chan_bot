@@ -18,6 +18,11 @@ SYSTEM_PROMPT = """\
 
 
 async def chat_oneshot(prompt: str) -> str:
+    if not config.LLM_ENABLE:
+        # LLM機能無効時の発言
+        # TODO: いいかんじに置き換えてください
+        return "その機能は使えないんだ。ごめんね。"
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
