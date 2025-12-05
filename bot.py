@@ -285,13 +285,15 @@ class MyBot:
                     )
 
                     try:
+                        speedtest_with_timeout = asyncio.wait_for(responses.run_speedtest(), timeout=60)  # タイムアウトを60秒に設定
+                        speedtest_task = asyncio.create_task(speedtest_with_timeout)
                         await asyncio.sleep(10)
                         await asyncio.to_thread(
                             self.msk.notes_create,
                             text="計測中だよ、いまは話しかけないでね……"
                         )
 
-                        speed_result = await asyncio.wait_for(responses.run_speedtest(), timeout=60)  # タイムアウトを60秒に設定
+                        speed_result = await speedtest_task
 
                         if "ごめん、計測中にエラー" in speed_result:
                             raise Exception(speed_result)
