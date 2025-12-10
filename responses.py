@@ -4,10 +4,12 @@ import random
 
 import speedtest
 
+import openrouter
+
 
 # 元のif文の羅列を、リストからランダムに選ぶ形に変更
 GO_WORK = [
-    "お仕事、頑張ってきてね。わたし、帰ってくるの、待ってるから……",
+    "お仕事、頑張ってきてね。わたし、あなたが帰ってくるの、待ってるから……",
     "お仕事は大事だけど、あんまり無理はしないでね？",
     "お仕事とわたし、どっちが大事なんだろう……。まぁ、わたしにはロイちゃんがいるから、いい……のかな？\n……あっ、ち、違う！ これは違くて…！ なんでもないから……！",
 ]
@@ -28,7 +30,7 @@ MORNING = [
 MENTION_SLEEPY = ["よしよし……", "……なでなで、してあげるね"]
 TO_YOU_ABUSE = ["変なお願いをするもんだね……", "えっと……、ど、どんな風に罵ってほしいとか、ある？"]
 TWO_TIME_SLEEP = [
-    "二度寝をするのは悪いことではないけど、ほどほどにしておいてね？",
+    "二度寝をするのは悪いことじゃないけど、ほどほどにしておいてね？",
     "30分後にアラームを設定。……よし、準備おっけー。じゃあ、わたしも二度寝しちゃおうかな……",
 ]
 
@@ -91,3 +93,18 @@ def roll_dice(count_str, sides_str):
     except ValueError:
         # 数字が大きすぎるなどでint()に失敗した場合
         return None
+
+async def _async_llm_request(text: str):
+    """内部専用の LLM 呼び出し"""
+    return await openrouter.chat_oneshot(text)
+
+
+async def run_llm(text: str):
+    """
+    bot.py から await run_llm() するための関数
+    """
+    try:
+        result = await _async_llm_request(text)
+        return result
+    except Exception as e:
+        return f"ごめん、LLMでエラー起きちゃったみたい…\n`{e}`"
