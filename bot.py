@@ -206,6 +206,23 @@ class MyBot:
 
         if self.my_id in note.get('mentions', []):  # メンション処理
 
+            if "+LLM" in text:
+                async def process():
+                    # LLM本文から +LLM を削除
+                    cleaned_text = text.replace("+LLM", "").strip()
+                    # LLM呼び出し
+                    reply = await responses.run_llm(cleaned_text)
+                    # 最終返信
+                    await asyncio.to_thread(
+                        self.msk.notes_create,
+                        text=reply,
+                        reply_id=note['id'],
+                        visibility=vis
+                    )
+
+                asyncio.create_task(process())
+                return
+
             # --- あだ名設定処理 ---
             if "って呼んで" in text or "と呼んで" in text:
                 nickname = utils.extract_nickname(text)
@@ -295,7 +312,7 @@ class MyBot:
 
                         speed_result = await speedtest_task
 
-                        if "ごめん、計測中にエラー" in speed_result:
+                        if "ごめん、計測中にエラーが起きちゃったみたい。。。。。。" in speed_result:
                             raise Exception(speed_result)
 
                         if vis == "followers":
@@ -458,11 +475,11 @@ class MyBot:
             (("ぬるぽ",), ":galtu:", None, "exact"),
 
             # --- "partial" (部分一致) ---
-            (("疲れた", "つかれた", "疲れてる", "つかれてる", "疲れている", "つかれている"), "ひとやすみ、する？ それとも、わたしが癒してあげよっか？", None, "partial"),
             (("出勤",), responses.get_random_response('go_work'), None, "partial"),
             (("退勤", "しごおわ"), "お仕事終わったの？ お疲れさま～。 ……わたしの癒し、必要かな？ 必要なら、いつでも言ってね", None, "partial"),
 
             # --- "context" (前後n文字まで許容) ---
+            (("疲れた", "つかれた", "疲れてる", "つかれてる", "疲れている", "つかれている"), "ひとやすみ、する？ それとも、わたしが癒してあげよっか？", None, "partial"),
             (("眠い", "眠たい", "ねむ"), "なるほど、眠いんだね。……我慢はよくないよ？ 欲には素直にならないと", False, "context"),
             (("つらい", "つらすぎ"), "つらいときは、甘えてもいいんだよ？", None, "context"),
             (("おやすみ",), responses.get_random_response('good_night'), False, "context"),
