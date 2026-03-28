@@ -206,12 +206,17 @@ class MyBot:
 
         if self.my_id in note.get('mentions', []):  # メンション処理
 
-            if "+LLM" in text:
+            if "+LLM" in text or "さんご" in text:
                 async def process():
-                    # LLM本文から +LLM を削除
-                    cleaned_text = text.replace("+LLM", "").strip()
-                    # LLM呼び出し
-                    reply = await responses.run_llm(cleaned_text)
+                    self.msk.notes_reactions_create(
+                        note_id=note['id'],
+                        reaction="💭")
+                    # LLM本文から余分な文字を削除
+                    cleaned_text = text.replace("+LLM", "").replace("@sango", "").replace("@sango@3.5mbps.net", "").replace("@miiko", "").replace("@miiko@3.5mbps.net", "").replace("@ten", "").replace("@ten@3.5mbps.net", "").strip()
+                    # ユーザーの表示名（あだ名があればあだ名）を取得
+                    user_name = self._get_user_display_name(user_id, user)
+                    # LLM呼び出し（IDと名前も一緒に渡す）
+                    reply = await responses.run_llm(user_id, user_name, cleaned_text, is_reply)
                     # 最終返信
                     await asyncio.to_thread(
                         self.msk.notes_create,
