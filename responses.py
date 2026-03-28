@@ -99,12 +99,52 @@ async def _async_llm_request(text: str):
     return await openrouter.chat_oneshot(text)
 
 
-async def run_llm(text: str):
+# 記憶を保存する辞書（botが起動している間だけ保持されます）
+user_memories = {}
+# 過去何往復分の会話を覚えているか（いまのところ10件＝5往復に制限）
+MAX_HISTORY = 10
+
+async def _async_llm_request(messages_history: list):
+    """内部専用の LLM 呼び出し（履歴対応版）"""
+    return await openrouter.chat_with_history(messages_history)
+
+
+async def run_llm(user_id: str, user_name: str, text: str, is_reply: bool = False):
     """
-    bot.py から await run_llm() するための関数
+    bot.py から呼び出されるLLM実行関数
+    ユーザーIDと名前を受け取り、記憶を管理します。
     """
+    global user_memories
+
+    # ★追加部分：新規メンション（リプライではない）なら、過去の記憶を消去
+    if not is_reply:
+        user_memories[user_id] = []
+        print(f"[{user_name}] 新規メンションのため記憶をリセットしました")
+
+    # 初めて話しかけてきた人の場合は、空の履歴リストを作る
+    if user_id not in user_memories:
+        user_memories[user_id] = []
+
+    # LLMに「誰からのメッセージか」を意識させるために、こっそり名前を差し込みます
+    prompt_with_name = f"[{user_name}さんからのメッセージ]\n{text}"
+
+    # ユーザーの今回の発言を記憶に追加
+    user_memories[user_id].append({"role": "user", "content": prompt_with_name})
+
+    # 記憶が上限を超えたら、古いものから忘れる
+    if len(user_memories[user_id]) > MAX_HISTORY:
+        user_memories[user_id] = user_memories[user_id][-MAX_HISTORY:]
+
     try:
-        result = await _async_llm_request(text)
+        # 履歴を丸ごとLLMに投げる
+        result = await _async_llm_request(user_memories[user_id])
+
+        # LLMの返答も記憶に追加する
+        user_memories[user_id].append({"role": "assistant", "content": result})
+
         return result
     except Exception as e:
-        return f"ごめん、LLMでエラー起きちゃったみたい…\n`{e}`"
+        # エラーが起きたら、今回の記憶を一旦消してあげる（リトライできるように）
+        if user_memories[user_id]:
+            user_memories[user_id].pop()
+        return f"ごめん、LLMでエラーが起きちゃったみたい…\n`{e}`"

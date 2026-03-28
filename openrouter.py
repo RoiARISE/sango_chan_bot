@@ -17,11 +17,14 @@ SYSTEM_PROMPT = """\
 """
 
 
-async def chat_oneshot(prompt: str) -> str:
+async def chat_with_history(messages_history: list) -> str:
     if not config.LLM_ENABLE:
         # LLM機能無効時の発言
         # TODO: いいかんじに置き換えてください
         return "その機能は使えないんだ。ごめんね。"
+
+    # システムプロンプトの直後に、過去の会話履歴を繋げる
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + messages_history
 
     async with httpx.AsyncClient() as client:
         try:
@@ -32,16 +35,7 @@ async def chat_oneshot(prompt: str) -> str:
                 },
                 json={
                     "model": config.LLM_MODEL,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": SYSTEM_PROMPT,
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt,
-                        },
-                    ],
+                    "messages": messages, # ここで履歴を含めたメッセージ群を送信
                 },
             )
         except Exception:
