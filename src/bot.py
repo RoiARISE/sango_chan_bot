@@ -9,6 +9,14 @@ from .handlers import FollowHandler, MentionHandler, TimelineHandler
 from .stores.nickname_store import NicknameStore
 
 
+async def _safe_run(coro, name: str):
+    """ハンドラーコルーチンを実行し、例外をログに記録する"""
+    try:
+        await coro
+    except Exception as e:
+        print(f"[{name}] ハンドラーエラー: {e}")
+
+
 class MyBot:
     def __init__(self, msk: Misskey):
         self.msk = msk
@@ -35,39 +43,44 @@ class MyBot:
 
         await asyncio.to_thread(self._store.sync_followings)
 
-        async with asyncio.TaskGroup() as tg:
-            while True:
-                try:
-                    async with websockets.connect(config.WS_URL) as ws:
-                        print("WebSocketに接続しました。イベントを待機します...")
-                        await ws.send(json.dumps({
-                            "type": "connect", "body": {"channel": "main", "id": "main"}
-                        }))
-                        await ws.send(json.dumps({
-                            "type": "connect", "body": {"channel": "homeTimeline", "id": "home"}
-                        }))
+        while True:
+            try:
+                async with websockets.connect(config.WS_URL) as ws:
+                    print("WebSocketに接続しました。イベントを待機します...")
+                    await ws.send(json.dumps({
+                        "type": "connect", "body": {"channel": "main", "id": "main"}
+                    }))
+                    await ws.send(json.dumps({
+                        "type": "connect", "body": {"channel": "homeTimeline", "id": "home"}
+                    }))
 
-                        while True:
-                            data = json.loads(await ws.recv())
-                            if data.get("type") != "channel":
-                                continue
+                    while True:
+                        data = json.loads(await ws.recv())
+                        if data.get("type") != "channel":
+                            continue
 
-                            body = data["body"]
-                            event_type = body.get("type")
-                            event_body = body.get("body")
-                            channel_id = body.get("id")
+                        body = data["body"]
+                        event_type = body.get("type")
+                        event_body = body.get("body")
+                        channel_id = body.get("id")
 
-                            if channel_id == "main":
-                                if event_type == "followed":
-                                    tg.create_task(self._follow_handler.handle(event_body))
-                                elif event_type == "mention":
-                                    tg.create_task(self._mention_handler.handle(event_body))
-                            elif channel_id == "home" and event_type == "note":
-                                tg.create_task(self._timeline_handler.handle(event_body))
+                        if channel_id == "main":
+                            if event_type == "followed":
+                                asyncio.create_task(
+                                    _safe_run(self._follow_handler.handle(event_body), "follow")
+                                )
+                            elif event_type == "mention":
+                                asyncio.create_task(
+                                    _safe_run(self._mention_handler.handle(event_body), "mention")
+                                )
+                        elif channel_id == "home" and event_type == "note":
+                            asyncio.create_task(
+                                _safe_run(self._timeline_handler.handle(event_body), "timeline")
+                            )
 
-                except websockets.exceptions.ConnectionClosed as e:
-                    print(f"[main_task] ConnectionClosed: code={e.code}, reason={e.reason}")
-                    await asyncio.sleep(5)
-                except Exception as e:
-                    print("[main_task] Error:", e)
-                    await asyncio.sleep(5)
+            except websockets.exceptions.ConnectionClosed as e:
+                print(f"[main_task] ConnectionClosed: code={e.code}, reason={e.reason}")
+                await asyncio.sleep(5)
+            except Exception as e:
+                print("[main_task] Error:", e)
+                await asyncio.sleep(5)

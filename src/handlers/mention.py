@@ -123,6 +123,11 @@ class MentionHandler:
             relation = cast(dict, relation)
         except Exception as e:
             print(f"Error fetching user relation: {e}")
+            await asyncio.to_thread(
+                self._msk.notes_create,
+                text="ごめんね、今ちょっと調子が悪いみたい……",
+                reply_id=note["id"]
+            )
             return
 
         if relation.get("isFollowing"):
@@ -249,7 +254,8 @@ class MentionHandler:
             await asyncio.sleep(10)
             await asyncio.to_thread(
                 self._msk.notes_create,
-                text="計測中だよ、いまは話しかけないでね……"
+                text="計測中だよ、いまは話しかけないでね……",
+                visibility=vis
             )
             speed_result = await speedtest_task
 
@@ -282,7 +288,7 @@ class MentionHandler:
             print(f"Speedtest エラー: {e}")
             await asyncio.to_thread(
                 self._msk.notes_create,
-                text=str(e),
+                text="速度測定中にエラーが発生しました。後でもう一度お試しください。",
                 reply_id=note["id"],
                 visibility=vis
             )
@@ -302,9 +308,9 @@ class MentionHandler:
 
         print(f"Todoリマインダー実行 (vis: {vis}): {note_id}")
         if vis == "followers":
-            self._msk.notes_create(text=text_to_send, reply_id=note_id, visibility=vis)
+            await asyncio.to_thread(self._msk.notes_create, text=text_to_send, reply_id=note_id, visibility=vis)
         else:
-            self._msk.notes_create(text=text_to_send, renote_id=note_id, visibility=vis)
+            await asyncio.to_thread(self._msk.notes_create, text=text_to_send, renote_id=note_id, visibility=vis)
 
     async def _handle_llm(self, note: dict) -> None:
         user = note["user"]
@@ -314,7 +320,7 @@ class MentionHandler:
         is_reply = note.get("replyId") is not None
 
         async def process():
-            self._msk.notes_reactions_create(note_id=note["id"], reaction="💭")
+            await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note["id"], reaction="💭")
             cleaned_text = (
                 text
                 .replace("+LLM", "")
@@ -335,7 +341,10 @@ class MentionHandler:
                 visibility=vis
             )
 
-        asyncio.create_task(process())
+        task = asyncio.create_task(process())
+        task.add_done_callback(
+            lambda t: print(f"LLMプロセスエラー: {t.exception()}") if t.exception() else None
+        )
 
     def _build_command_list(
         self, user_id: str, user: dict, vis: str

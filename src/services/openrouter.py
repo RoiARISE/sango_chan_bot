@@ -37,17 +37,49 @@ async def chat_with_history(messages_history: list) -> str:
                     "model": config.LLM_MODEL,
                     "messages": messages,
                 },
+                timeout=30.0,
             )
-        except Exception:
+        except httpx.TimeoutException as e:
+            print(f"LLM通信タイムアウト: endpoint={config.LLM_ENDPOINT}, model={config.LLM_MODEL}, error={e}")
             # 通信エラー時の発言
             # TODO: いいかんじに置き換えてください
             return "通信中にエラーが起きたみたい…"
+        except httpx.RequestError as e:
+            print(f"LLM通信エラー: endpoint={config.LLM_ENDPOINT}, model={config.LLM_MODEL}, error={e}")
+            # 通信エラー時の発言
+            # TODO: いいかんじに置き換えてください
+            return "通信中にエラーが起きたみたい…"
+        except Exception as e:
+            print(f"LLM予期せぬエラー: endpoint={config.LLM_ENDPOINT}, model={config.LLM_MODEL}, error={e}")
+            return "通信中にエラーが起きたみたい…"
 
-    body = response.json()
-
-    if "error" in body:
+    if not response.is_success:
+        print(f"LLMエラーレスポンス: status={response.status_code}, body={response.text}")
         # LLMモデルがエラーを吐いたときの発言
         # TODO: いいかんじに置き換えてください
         return "何かがおかしいかも…"
 
-    return body["choices"][0]["message"]["content"]
+    try:
+        body = response.json()
+    except Exception as e:
+        print(f"LLMレスポンスのJSONパースエラー: {e}, raw={response.text}")
+        return "何かがおかしいかも…"
+
+    if "error" in body:
+        print(f"LLMエラー: {body['error']}")
+        # LLMモデルがエラーを吐いたときの発言
+        # TODO: いいかんじに置き換えてください
+        return "何かがおかしいかも…"
+
+    choices = body.get("choices")
+    if not choices or not isinstance(choices, list):
+        print(f"LLMレスポンスに choices がありません: {body}")
+        return "何かがおかしいかも…"
+
+    message = choices[0].get("message", {})
+    content = message.get("content")
+    if content is None:
+        print(f"LLMレスポンスに content がありません: {body}")
+        return "何かがおかしいかも…"
+
+    return content

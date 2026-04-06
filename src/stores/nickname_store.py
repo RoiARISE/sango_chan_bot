@@ -14,7 +14,7 @@ class NicknameStore:
         try:
             with open(self._filepath, "r", encoding="utf-8") as f:
                 self._data = json.load(f)
-        except FileNotFoundError:
+        except (FileNotFoundError, json.JSONDecodeError):
             self._data = {}
 
     def save(self) -> None:
@@ -58,13 +58,23 @@ class NicknameStore:
     def sync_followings(self) -> None:
         """起動時にフォロー中のユーザー情報を同期する (同期関数 / asyncio.to_thread 経由で呼ぶ)"""
         try:
-            followings = self._msk.users_following(user_id=self._my_id, limit=100)
             added_count = 0
-            for item in followings:
-                user = item["followee"]
-                if user["id"] not in self._data:
-                    self._data[user["id"]] = {"nickname": "", "username": user["username"]}
-                    added_count += 1
+            until_id = None
+            while True:
+                kwargs = {"user_id": self._my_id, "limit": 100}
+                if until_id:
+                    kwargs["untilId"] = until_id
+                followings = self._msk.users_following(**kwargs)
+                if not followings:
+                    break
+                for item in followings:
+                    user = item["followee"]
+                    if user["id"] not in self._data:
+                        self._data[user["id"]] = {"nickname": "", "username": user["username"]}
+                        added_count += 1
+                until_id = followings[-1]["followee"]["id"]
+                if len(followings) < 100:
+                    break
             if added_count > 0:
                 self.save()
             print(f"✅フォロー同期完了: {added_count}件のユーザーを追加しました。")

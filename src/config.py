@@ -19,6 +19,7 @@ TOKEN = get_env_variable('TOKEN')
 INSTANCE_URL = get_env_variable('INSTANCE')
 
 WS_URL = f'wss://{INSTANCE_URL}/streaming?i={TOKEN}'
+SAFE_WS_URL = f'wss://{INSTANCE_URL}/streaming?i=***'
 
 # --- LLM関連 ---
 LLM_ENABLE = os.getenv('LLM_ENABLE')
