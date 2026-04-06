@@ -1,9 +1,12 @@
 import asyncio
+import logging
 
 from misskey import Misskey
 
 from ..stores.nickname_store import NicknameStore
 from ..utils import create_mention_string
+
+logger = logging.getLogger(__name__)
 
 
 class FollowHandler:
@@ -18,4 +21,4 @@ class FollowHandler:
             self._msk.notes_create,
             text=f"フォローありがとうございます、{mention}さん\n「フォローして」とメンションしながら投稿すると、フォローバックするよ"
         )
-        print(f"フォローされました: {mention}")
+        logger.info("フォローされました: %s", mention)

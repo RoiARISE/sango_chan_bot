@@ -1,6 +1,10 @@
+import logging
+
 import httpx
 
 from .. import config
+
+logger = logging.getLogger(__name__)
 
 # TODO: いいかんじに置き換えてください
 SYSTEM_PROMPT = """\
@@ -39,47 +43,47 @@ async def chat_with_history(messages_history: list) -> str:
                 },
                 timeout=30.0,
             )
-        except httpx.TimeoutException as e:
-            print(f"LLM通信タイムアウト: endpoint={config.LLM_ENDPOINT}, model={config.LLM_MODEL}, error={e}")
+        except httpx.TimeoutException:
+            logger.error("LLM通信タイムアウト: endpoint=%s, model=%s", config.LLM_ENDPOINT, config.LLM_MODEL, exc_info=True)
             # 通信エラー時の発言
             # TODO: いいかんじに置き換えてください
             return "通信中にエラーが起きたみたい…"
-        except httpx.RequestError as e:
-            print(f"LLM通信エラー: endpoint={config.LLM_ENDPOINT}, model={config.LLM_MODEL}, error={e}")
+        except httpx.RequestError:
+            logger.error("LLM通信エラー: endpoint=%s, model=%s", config.LLM_ENDPOINT, config.LLM_MODEL, exc_info=True)
             # 通信エラー時の発言
             # TODO: いいかんじに置き換えてください
             return "通信中にエラーが起きたみたい…"
-        except Exception as e:
-            print(f"LLM予期せぬエラー: endpoint={config.LLM_ENDPOINT}, model={config.LLM_MODEL}, error={e}")
+        except Exception:
+            logger.error("LLM予期せぬエラー: endpoint=%s, model=%s", config.LLM_ENDPOINT, config.LLM_MODEL, exc_info=True)
             return "通信中にエラーが起きたみたい…"
 
     if not response.is_success:
-        print(f"LLMエラーレスポンス: status={response.status_code}, body={response.text}")
+        logger.error("LLMエラーレスポンス: status=%s, body=%s", response.status_code, response.text)
         # LLMモデルがエラーを吐いたときの発言
         # TODO: いいかんじに置き換えてください
         return "何かがおかしいかも…"
 
     try:
         body = response.json()
-    except Exception as e:
-        print(f"LLMレスポンスのJSONパースエラー: {e}, raw={response.text}")
+    except Exception:
+        logger.error("LLMレスポンスのJSONパースエラー: raw=%s", response.text, exc_info=True)
         return "何かがおかしいかも…"
 
     if "error" in body:
-        print(f"LLMエラー: {body['error']}")
+        logger.error("LLMエラー: %s", body["error"])
         # LLMモデルがエラーを吐いたときの発言
         # TODO: いいかんじに置き換えてください
         return "何かがおかしいかも…"
 
     choices = body.get("choices")
     if not choices or not isinstance(choices, list):
-        print(f"LLMレスポンスに choices がありません: {body}")
+        logger.error("LLMレスポンスに choices がありません: %s", body)
         return "何かがおかしいかも…"
 
     message = choices[0].get("message", {})
     content = message.get("content")
     if content is None:
-        print(f"LLMレスポンスに content がありません: {body}")
+        logger.error("LLMレスポンスに content がありません: %s", body)
         return "何かがおかしいかも…"
 
     return content
