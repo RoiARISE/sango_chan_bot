@@ -68,6 +68,7 @@ class MentionHandler:
     async def _handle_follow_request(self, note: dict) -> None:
         user = note["user"]
         user_id = user["id"]
+        vis = note.get("visibility", "public")
         try:
             relation = await asyncio.to_thread(self._msk.users_show, user_id=user_id)
             relation = cast(dict, relation)
@@ -76,7 +77,8 @@ class MentionHandler:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="ごめんね、今ちょっと調子が悪いみたい……",
-                reply_id=note["id"]
+                reply_id=note["id"],
+                visibility=vis
             )
             return
 
@@ -84,7 +86,8 @@ class MentionHandler:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="……だれ？",
-                reply_id=note["id"]
+                reply_id=note["id"],
+                visibility=vis
             )
             return
 
@@ -93,7 +96,8 @@ class MentionHandler:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text=f"{name}さん、もうフォローしてるよー",
-                reply_id=note["id"]
+                reply_id=note["id"],
+                visibility=vis
             )
             return
 
@@ -107,7 +111,8 @@ class MentionHandler:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text=f"{mention} フォローバックしたよ、{name}さん。これからよろしくね",
-                reply_id=note["id"]
+                reply_id=note["id"],
+                visibility=vis
             )
             logger.info("%s さんをフォローしました", name)
         except Exception:
@@ -115,12 +120,14 @@ class MentionHandler:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="フォローしようとしたけど、うまくいかなかったみたい……",
-                reply_id=note["id"]
+                reply_id=note["id"],
+                visibility=vis
             )
 
     async def _handle_unfollow_request(self, note: dict) -> None:
         user = note["user"]
         user_id = user["id"]
+        vis = note.get("visibility", "public")
         try:
             relation = await asyncio.to_thread(self._msk.users_show, user_id=user_id)
             relation = cast(dict, relation)
@@ -129,7 +136,8 @@ class MentionHandler:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="ごめんね、今ちょっと調子が悪いみたい……",
-                reply_id=note["id"]
+                reply_id=note["id"],
+                visibility=vis
             )
             return
 
@@ -138,7 +146,8 @@ class MentionHandler:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text=f"{mention} さよなら、になっちゃうのかな……",
-                reply_id=note["id"]
+                reply_id=note["id"],
+                visibility=vis
             )
             await asyncio.sleep(10)
             try:
@@ -151,14 +160,16 @@ class MentionHandler:
                 await asyncio.to_thread(
                     self._msk.notes_create,
                     text="フォロー解除しようとしたけど、うまくいかなかったみたい……",
-                    reply_id=note["id"]
+                    reply_id=note["id"],
+                    visibility=vis
                 )
         else:
             mention = create_mention_string(user)
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text=f"{mention} もともとフォローしてないよー",
-                reply_id=note["id"]
+                reply_id=note["id"],
+                visibility=vis
             )
 
     async def _handle_nickname_set(self, note: dict) -> None:
