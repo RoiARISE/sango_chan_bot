@@ -1,5 +1,5 @@
-websockets
-misskey.py
-speedtest-cli
-python-dotenv
-httpx
+websockets==16.0
+misskey.py==4.1.0
+speedtest-cli==2.1.3
+python-dotenv==1.2.2
+httpx==0.28.1
