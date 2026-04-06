@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 import websockets
 from misskey import Misskey
@@ -8,13 +9,15 @@ from . import config
 from .handlers import FollowHandler, MentionHandler, TimelineHandler
 from .stores.nickname_store import NicknameStore
 
+logger = logging.getLogger(__name__)
+
 
 async def _safe_run(coro, name: str):
     """ハンドラーコルーチンを実行し、例外をログに記録する"""
     try:
         await coro
-    except Exception as e:
-        print(f"[{name}] ハンドラーエラー: {e}")
+    except Exception:
+        logger.error("[%s] ハンドラーエラー", name, exc_info=True)
 
 
 class MyBot:
@@ -29,7 +32,7 @@ class MyBot:
         self._mention_handler = MentionHandler(msk, self._store, config.ADMIN_ID)
         self._timeline_handler = TimelineHandler(msk, self._store, self.my_id)
 
-        print("botが起動しました")
+        logger.info("botが起動しました")
 
     async def main_task(self):
         """ボットを起動し、WebSocketに接続する"""
@@ -38,15 +41,15 @@ class MyBot:
                 self.msk.notes_create,
                 text="うーん、うとうとしちゃってたみたい……？"
             )
-        except Exception as e:
-            print(f"起動ノートの投稿に失敗: {e}")
+        except Exception:
+            logger.error("起動ノートの投稿に失敗", exc_info=True)
 
         await asyncio.to_thread(self._store.sync_followings)
 
         while True:
             try:
                 async with websockets.connect(config.WS_URL) as ws:
-                    print("WebSocketに接続しました。イベントを待機します...")
+                    logger.info("WebSocketに接続しました。イベントを待機します...")
                     await ws.send(json.dumps({
                         "type": "connect", "body": {"channel": "main", "id": "main"}
                     }))
@@ -79,8 +82,8 @@ class MyBot:
                             )
 
             except websockets.exceptions.ConnectionClosed as e:
-                print(f"[main_task] ConnectionClosed: code={e.code}, reason={e.reason}")
+                logger.warning("[main_task] ConnectionClosed: code=%s, reason=%s", e.code, e.reason)
                 await asyncio.sleep(5)
-            except Exception as e:
-                print("[main_task] Error:", e)
+            except Exception:
+                logger.error("[main_task] Error", exc_info=True)
                 await asyncio.sleep(5)

@@ -1,6 +1,9 @@
 import json
+import logging
 
 from misskey import Misskey
+
+logger = logging.getLogger(__name__)
 
 
 class NicknameStore:
@@ -77,6 +80,6 @@ class NicknameStore:
                     break
             if added_count > 0:
                 self.save()
-            print(f"✅フォロー同期完了: {added_count}件のユーザーを追加しました。")
-        except Exception as e:
-            print(f"フォロー同期エラー: {e}")
+            logger.info("フォロー同期完了: %d件のユーザーを追加しました", added_count)
+        except Exception:
+            logger.error("フォロー同期エラー", exc_info=True)

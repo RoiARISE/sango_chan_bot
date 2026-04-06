@@ -1,6 +1,9 @@
 import asyncio
+import logging
 
 from . import openrouter
+
+logger = logging.getLogger(__name__)
 
 # 記憶を保存する辞書（botが起動している間だけ保持されます）
 user_memories: dict = {}
@@ -20,7 +23,7 @@ async def run_llm(user_id: str, user_name: str, text: str, is_reply: bool = Fals
     # 新規メンション（リプライではない）なら、過去の記憶を消去
     if not is_reply:
         user_memories[user_id] = []
-        print(f"[{user_name}] 新規メンションのため記憶をリセットしました")
+        logger.debug("[%s] 新規メンションのため記憶をリセットしました", user_name)
 
     if user_id not in user_memories:
         user_memories[user_id] = []

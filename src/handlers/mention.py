@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 from typing import Callable, cast
 
@@ -8,6 +9,8 @@ from .. import config, responses, utils
 from ..services import llm, speedtest
 from ..stores.nickname_store import NicknameStore
 from ..utils import create_mention_string
+
+logger = logging.getLogger(__name__)
 
 
 class MentionHandler:
@@ -68,8 +71,8 @@ class MentionHandler:
         try:
             relation = await asyncio.to_thread(self._msk.users_show, user_id=user_id)
             relation = cast(dict, relation)
-        except Exception as e:
-            print(f"Error fetching user relation: {e}")
+        except Exception:
+            logger.error("Error fetching user relation", exc_info=True)
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="ごめんね、今ちょっと調子が悪いみたい……",
@@ -97,7 +100,7 @@ class MentionHandler:
         try:
             await asyncio.to_thread(self._msk.following_create, user_id=user_id)
             self._store.ensure_user(user_id, user.get("username", ""))
-            print(f"JSONに {user.get('username')} さんを登録しました")
+            logger.info("JSONに %s さんを登録しました", user.get("username"))
 
             name = self._store.get_display_name(user_id, user)
             mention = create_mention_string(user)
@@ -106,9 +109,9 @@ class MentionHandler:
                 text=f"{mention} フォローバックしたよ、{name}さん。これからよろしくね",
                 reply_id=note["id"]
             )
-            print(f"{name} さんをフォローしました。")
-        except Exception as e:
-            print(f"フォロー作成エラー: {e}")
+            logger.info("%s さんをフォローしました", name)
+        except Exception:
+            logger.error("フォロー作成エラー", exc_info=True)
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="フォローしようとしたけど、うまくいかなかったみたい……",
@@ -121,8 +124,8 @@ class MentionHandler:
         try:
             relation = await asyncio.to_thread(self._msk.users_show, user_id=user_id)
             relation = cast(dict, relation)
-        except Exception as e:
-            print(f"Error fetching user relation: {e}")
+        except Exception:
+            logger.error("Error fetching user relation", exc_info=True)
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="ごめんね、今ちょっと調子が悪いみたい……",
@@ -140,11 +143,11 @@ class MentionHandler:
             await asyncio.sleep(10)
             try:
                 await asyncio.to_thread(self._msk.following_delete, user_id=user_id)
-                print(f"{user.get('username')} さんのフォローを解除しました")
+                logger.info("%s さんのフォローを解除しました", user.get("username"))
                 self._store.remove_user(user_id)
-                print(f"{user.get('username')} さんの情報をnickname.jsonから削除しました。")
-            except Exception as e:
-                print(f"フォロー解除またはJSON削除エラー: {e}")
+                logger.info("%s さんの情報をnickname.jsonから削除しました", user.get("username"))
+            except Exception:
+                logger.error("フォロー解除またはJSON削除エラー", exc_info=True)
                 await asyncio.to_thread(
                     self._msk.notes_create,
                     text="フォロー解除しようとしたけど、うまくいかなかったみたい……",
@@ -197,7 +200,7 @@ class MentionHandler:
             reply_id=note["id"],
             visibility=vis
         )
-        print(f"あだ名を登録: {user_id} -> {sanitized}")
+        logger.info("あだ名を登録: %s -> %s", user_id, sanitized)
 
     async def _handle_nickname_clear(self, note: dict) -> None:
         user = note["user"]
@@ -219,7 +222,7 @@ class MentionHandler:
                 reply_id=note["id"],
                 visibility=vis
             )
-            print(f"あだ名をリセット: {user_id}")
+            logger.info("あだ名をリセット: %s", user_id)
         else:
             await asyncio.to_thread(
                 self._msk.notes_create,
@@ -277,15 +280,15 @@ class MentionHandler:
                     visibility=vis
                 )
         except asyncio.TimeoutError:
-            print("Speedtest エラー: タイムアウト")
+            logger.error("Speedtest エラー: タイムアウト")
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="ごめん、計測が1分経っても終わらないみたい……",
                 reply_id=note["id"],
                 visibility=vis
             )
-        except Exception as e:
-            print(f"Speedtest エラー: {e}")
+        except Exception:
+            logger.error("Speedtest エラー", exc_info=True)
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="速度測定中にエラーが発生しました。後でもう一度お試しください。",
@@ -303,10 +306,10 @@ class MentionHandler:
             text_to_send = "管理者ちゃん、これやった？"
 
         delay = 60
-        print(f"Todoリマインダー 開始 (待機 {delay}秒): {note_id}")
+        logger.debug("Todoリマインダー 開始 (待機 %s秒): %s", delay, note_id)
         await asyncio.sleep(delay)
 
-        print(f"Todoリマインダー実行 (vis: {vis}): {note_id}")
+        logger.debug("Todoリマインダー実行 (vis: %s): %s", vis, note_id)
         if vis == "followers":
             await asyncio.to_thread(self._msk.notes_create, text=text_to_send, reply_id=note_id, visibility=vis)
         else:
@@ -343,7 +346,7 @@ class MentionHandler:
 
         task = asyncio.create_task(process())
         task.add_done_callback(
-            lambda t: print(f"LLMプロセスエラー: {t.exception()}") if t.exception() else None
+            lambda t: logger.error("LLMプロセスエラー: %s", t.exception()) if t.exception() else None
         )
 
     def _build_command_list(
