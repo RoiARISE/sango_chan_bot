@@ -1,11 +1,12 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 
 import websockets
 from misskey import Misskey
 
-from . import config
+from . import config, responses
 from .handlers import FollowHandler, MentionHandler, TimelineHandler
 from .stores.nickname_store import NicknameStore
 
@@ -87,3 +88,19 @@ class MyBot:
             except Exception:
                 logger.error("[main_task] Error", exc_info=True)
                 await asyncio.sleep(5)
+
+    async def timesignal_task(self):
+        """時報タスク: 毎時0分に定期投稿 (JST)"""
+        JST = timezone(timedelta(hours=9))
+        while True:
+            now = datetime.now(JST)
+            next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            await asyncio.sleep((next_hour - now).total_seconds())
+
+            hour = next_hour.hour
+            if hour in responses.SIGNALS:
+                try:
+                    await asyncio.to_thread(self.msk.notes_create, text=responses.SIGNALS[hour])
+                    logger.info("時報投稿: %d時", hour)
+                except Exception:
+                    logger.error("時報投稿に失敗", exc_info=True)
