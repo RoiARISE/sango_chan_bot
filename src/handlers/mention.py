@@ -269,6 +269,7 @@ class MentionHandler:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="計測中だよ、いまは話しかけないでね……",
+                reply_id=note["id"],
                 visibility=vis
             )
             speed_result = await speedtest_task
@@ -276,18 +277,18 @@ class MentionHandler:
             if "ごめん、計測中にエラーが起きちゃったみたい" in speed_result:
                 raise Exception(speed_result)
 
-            if vis == "followers":
+            if vis == "public":
                 await asyncio.to_thread(
                     self._msk.notes_create,
                     text=speed_result,
-                    reply_id=note["id"],
+                    renote_id=note["id"],
                     visibility=vis
                 )
             else:
                 await asyncio.to_thread(
                     self._msk.notes_create,
                     text=speed_result,
-                    renote_id=note["id"],
+                    reply_id=note["id"],
                     visibility=vis
                 )
         except asyncio.TimeoutError:
