@@ -1,6 +1,6 @@
 import httpx
 
-import config
+from .. import config
 
 # TODO: いいかんじに置き換えてください
 SYSTEM_PROMPT = """\
@@ -35,7 +35,7 @@ async def chat_with_history(messages_history: list) -> str:
                 },
                 json={
                     "model": config.LLM_MODEL,
-                    "messages": messages, # ここで履歴を含めたメッセージ群を送信
+                    "messages": messages,
                 },
             )
         except Exception:
@@ -46,9 +46,6 @@ async def chat_with_history(messages_history: list) -> str:
     body = response.json()
 
     if "error" in body:
-        # エラー内容が欲しい場合:
-        # err = body["error"]["message"]
-
         # LLMモデルがエラーを吐いたときの発言
         # TODO: いいかんじに置き換えてください
         return "何かがおかしいかも…"

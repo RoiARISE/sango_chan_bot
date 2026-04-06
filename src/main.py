@@ -2,12 +2,11 @@ import asyncio
 
 from misskey import Misskey
 
-import config
-from bot import MyBot
+from . import config
+from .bot import MyBot
 
 
 msk = Misskey(config.INSTANCE_URL, i=config.TOKEN)
-ADMIN_ID = config.ADMIN_ID
 
 if __name__ == "__main__":
     sango_chan = MyBot(msk)
