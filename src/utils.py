@@ -6,6 +6,8 @@ def extract_nickname(text):
     match = re.search(r"(.+?)(?:と呼んで|って呼んで)", text)
     if match:
         nickname = match.group(1).strip("、。 \n")
+        if not nickname:
+            return None
         return nickname
     return None
 
@@ -40,3 +42,12 @@ def validate_nickname(name: str) -> bool:
     if name.isspace():
         return False
     return True
+
+
+def create_mention_string(user: dict) -> str:
+    """@username または @username@host 形式のメンション文字列を生成する"""
+    username = user.get("username")
+    if not username:
+        return ""
+    host = user.get("host")
+    return f"@{username}@{host}" if host else f"@{username}"
