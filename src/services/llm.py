@@ -15,15 +15,36 @@ MAX_HISTORY = 10
 
 
 async def _update_user_profile_in_background(
-    user_id: str, user_name: str, history: list, current_profile: str, store: UserStore
+    user_id: str, user_name: str, history: list, current_profile: str, current_intimacy: int, store: UserStore
 ) -> None:
     try:
-        new_profile = await openrouter.generate_user_profile(history, current_profile, user_name)
+        analysis = await openrouter.analyze_user_interaction(
+            history, current_profile, current_intimacy, user_name
+        )
+        new_profile = analysis.get("description")
+        intimacy_change = analysis.get("intimacy_change", 0)
+
         if new_profile:
             store.set_profile(user_id, new_profile, user_name)
             logger.info("[%s] プロファイルを更新しました: %s", user_name, new_profile)
+
+        if intimacy_change != 0:
+            new_intimacy, applied = store.change_intimacy(user_id, intimacy_change, user_name)
+            if applied:
+                logger.info(
+                    "[%s] 親密度が変化しました: %d (%+d)",
+                    user_name,
+                    new_intimacy,
+                    intimacy_change
+                )
+            else:
+                logger.info(
+                    "[%s] 親密度の上昇要求がありましたが、1日1回の制限のため適用されませんでした。(現在: %d)",
+                    user_name,
+                    new_intimacy
+                )
     except Exception:
-        logger.error("[%s] プロファイル更新中にエラーが発生しました", user_name, exc_info=True)
+        logger.error("[%s] プロファイル/親密度更新中にエラーが発生しました", user_name, exc_info=True)
 
 
 async def run_llm(
@@ -50,23 +71,27 @@ async def run_llm(
         prompt_with_name = f"[{user_name}さんからのメッセージ]\n{text}"
         user_memories[user_id].append({"role": "user", "content": prompt_with_name})
 
-        # ユーザープロフィールをストアから取得
+        # ユーザープロフィールと親密度をストアから取得
         user_profile = ""
+        intimacy = 0
         if store is not None:
             user_profile = store.get_profile(user_id)
+            intimacy = store.get_intimacy(user_id)
 
         try:
-            result = await openrouter.chat_with_history(user_memories[user_id], user_profile=user_profile)
+            result = await openrouter.chat_with_history(
+                user_memories[user_id], user_profile=user_profile, intimacy=intimacy
+            )
             user_memories[user_id].append({"role": "assistant", "content": result})
             # 記憶が上限を超えたら、古いものから忘れる
             if len(user_memories[user_id]) > MAX_HISTORY:
                 user_memories[user_id] = user_memories[user_id][-MAX_HISTORY:]
 
-            # バックグラウンドでプロフィール更新タスクを実行
+            # バックグラウンドでプロフィール/親密度更新タスクを実行
             if store is not None:
                 asyncio.create_task(
                     _update_user_profile_in_background(
-                        user_id, user_name, list(user_memories[user_id]), user_profile, store
+                        user_id, user_name, list(user_memories[user_id]), user_profile, intimacy, store
                     )
                 )
 
