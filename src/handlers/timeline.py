@@ -5,12 +5,12 @@ from typing import Callable
 from misskey import Misskey
 
 from .. import responses
-from ..stores.nickname_store import NicknameStore
+from ..stores.user_store import UserStore
 from ..utils import create_mention_string
 
 
 class TimelineHandler:
-    def __init__(self, msk: Misskey, store: NicknameStore, my_id: str):
+    def __init__(self, msk: Misskey, store: UserStore, my_id: str):
         self._msk = msk
         self._store = store
         self._my_id = my_id
