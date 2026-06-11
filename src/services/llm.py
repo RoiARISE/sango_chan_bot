@@ -51,7 +51,7 @@ async def run_llm(
     user_id: str, user_name: str, text: str, is_reply: bool = False, store: UserStore | None = None
 ) -> str:
     """
-    bot から呼び出されるLLM実行関数。
+    botから呼び出されるLLM実行関数。
     ユーザーIDと名前を受け取り、会話履歴を管理する。
     """
     global user_memories, user_locks
