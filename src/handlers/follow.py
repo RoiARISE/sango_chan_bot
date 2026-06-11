@@ -3,14 +3,14 @@ import logging
 
 from misskey import Misskey
 
-from ..stores.nickname_store import NicknameStore
+from ..stores.user_store import UserStore
 from ..utils import create_mention_string
 
 logger = logging.getLogger(__name__)
 
 
 class FollowHandler:
-    def __init__(self, msk: Misskey, store: NicknameStore):
+    def __init__(self, msk: Misskey, store: UserStore):
         self._msk = msk
         self._store = store
 

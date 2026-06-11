@@ -7,14 +7,14 @@ from misskey import Misskey
 
 from .. import config, responses, utils
 from ..services import llm, speedtest
-from ..stores.nickname_store import NicknameStore
+from ..stores.user_store import UserStore
 from ..utils import create_mention_string
 
 logger = logging.getLogger(__name__)
 
 
 class MentionHandler:
-    def __init__(self, msk: Misskey, store: NicknameStore, admin_id: str | None):
+    def __init__(self, msk: Misskey, store: UserStore, admin_id: str | None):
         self._msk = msk
         self._store = store
         self._admin_id = admin_id
@@ -154,7 +154,7 @@ class MentionHandler:
                 await asyncio.to_thread(self._msk.following_delete, user_id=user_id)
                 logger.info("%s さんのフォローを解除しました", user.get("username"))
                 self._store.remove_user(user_id)
-                logger.info("%s さんの情報をnickname.jsonから削除しました", user.get("username"))
+                logger.info("%s さんの情報をuser_data.jsonから削除しました", user.get("username"))
             except Exception:
                 logger.error("フォロー解除またはJSON削除エラー", exc_info=True)
                 await asyncio.to_thread(
@@ -303,7 +303,7 @@ class MentionHandler:
             logger.error("Speedtest エラー", exc_info=True)
             await asyncio.to_thread(
                 self._msk.notes_create,
-                text="速度測定中にエラーが発生しました。後でもう一度お試しください。",
+                text="何かがおかしいかも……、もう一度やってみて？",
                 reply_id=note["id"],
                 visibility=vis
             )
@@ -348,7 +348,7 @@ class MentionHandler:
                 .strip()
             )
             user_name = self._store.get_display_name(user_id, user)
-            reply = await llm.run_llm(user_id, user_name, cleaned_text, is_reply)
+            reply = await llm.run_llm(user_id, user_name, cleaned_text, is_reply, self._store)
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text=reply,

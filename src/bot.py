@@ -8,7 +8,7 @@ from misskey import Misskey
 
 from . import config, responses
 from .handlers import FollowHandler, MentionHandler, TimelineHandler
-from .stores.nickname_store import NicknameStore
+from .stores.user_store import UserStore
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class MyBot:
         self.msk = msk
         self.my_id = self.msk.i()["id"]
 
-        self._store = NicknameStore(config.NICKNAME_FILE, msk, self.my_id)
+        self._store = UserStore(config.USER_DATA_FILE, msk, self.my_id)
         self._store.load()
 
         self._follow_handler = FollowHandler(msk, self._store)

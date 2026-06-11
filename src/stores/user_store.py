@@ -6,7 +6,7 @@ from misskey import Misskey
 logger = logging.getLogger(__name__)
 
 
-class NicknameStore:
+class UserStore:
     def __init__(self, filepath: str, msk: Misskey, my_id: str):
         self._filepath = filepath
         self._msk = msk
@@ -29,12 +29,12 @@ class NicknameStore:
 
     def ensure_user(self, user_id: str, username: str) -> None:
         if user_id not in self._data:
-            self._data[user_id] = {"nickname": "", "username": username}
+            self._data[user_id] = {"nickname": "", "username": username, "description": ""}
             self.save()
 
     def set_nickname(self, user_id: str, nickname: str, username: str = "") -> None:
         if user_id not in self._data:
-            self._data[user_id] = {"username": username}
+            self._data[user_id] = {"username": username, "nickname": "", "description": ""}
         self._data[user_id]["nickname"] = nickname
         self.save()
 
@@ -56,7 +56,21 @@ class NicknameStore:
             return user_data["name"]
         if user_data and user_data.get("username"):
             return user_data["username"]
+        if record and record.get("username"):
+            return record["username"]
         return user_id
+
+    def get_profile(self, user_id: str) -> str:
+        record = self._data.get(user_id)
+        if record:
+            return record.get("description", "")
+        return ""
+
+    def set_profile(self, user_id: str, description: str, username: str = "") -> None:
+        if user_id not in self._data:
+            self._data[user_id] = {"username": username, "nickname": "", "description": ""}
+        self._data[user_id]["description"] = description
+        self.save()
 
     def sync_followings(self) -> None:
         """起動時にフォロー中のユーザー情報を同期する (同期関数 / asyncio.to_thread 経由で呼ぶ)"""
@@ -73,7 +87,7 @@ class NicknameStore:
                 for item in followings:
                     user = item["followee"]
                     if user["id"] not in self._data:
-                        self._data[user["id"]] = {"nickname": "", "username": user["username"]}
+                        self._data[user["id"]] = {"nickname": "", "username": user["username"], "description": ""}
                         added_count += 1
                 until_id = followings[-1]["followee"]["id"]
                 if len(followings) < 100:

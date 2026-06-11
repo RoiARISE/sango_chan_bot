@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from . import openrouter
+from ..stores.user_store import UserStore
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,21 @@ user_locks: dict[str, asyncio.Lock] = {}
 MAX_HISTORY = 10
 
 
-async def run_llm(user_id: str, user_name: str, text: str, is_reply: bool = False) -> str:
+async def _update_user_profile_in_background(
+    user_id: str, user_name: str, history: list, current_profile: str, store: UserStore
+) -> None:
+    try:
+        new_profile = await openrouter.generate_user_profile(history, current_profile, user_name)
+        if new_profile:
+            store.set_profile(user_id, new_profile, user_name)
+            logger.info("[%s] プロファイルを更新しました: %s", user_name, new_profile)
+    except Exception:
+        logger.error("[%s] プロファイル更新中にエラーが発生しました", user_name, exc_info=True)
+
+
+async def run_llm(
+    user_id: str, user_name: str, text: str, is_reply: bool = False, store: UserStore | None = None
+) -> str:
     """
     bot から呼び出されるLLM実行関数。
     ユーザーIDと名前を受け取り、会話履歴を管理する。
@@ -35,12 +50,26 @@ async def run_llm(user_id: str, user_name: str, text: str, is_reply: bool = Fals
         prompt_with_name = f"[{user_name}さんからのメッセージ]\n{text}"
         user_memories[user_id].append({"role": "user", "content": prompt_with_name})
 
+        # ユーザープロフィールをストアから取得
+        user_profile = ""
+        if store is not None:
+            user_profile = store.get_profile(user_id)
+
         try:
-            result = await openrouter.chat_with_history(user_memories[user_id])
+            result = await openrouter.chat_with_history(user_memories[user_id], user_profile=user_profile)
             user_memories[user_id].append({"role": "assistant", "content": result})
             # 記憶が上限を超えたら、古いものから忘れる
             if len(user_memories[user_id]) > MAX_HISTORY:
                 user_memories[user_id] = user_memories[user_id][-MAX_HISTORY:]
+
+            # バックグラウンドでプロフィール更新タスクを実行
+            if store is not None:
+                asyncio.create_task(
+                    _update_user_profile_in_background(
+                        user_id, user_name, list(user_memories[user_id]), user_profile, store
+                    )
+                )
+
             return result
         except Exception as e:
             if user_memories[user_id]:
