@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 
 from misskey import Misskey
 
@@ -21,6 +22,7 @@ class UserStore:
             self._data = {}
 
     def save(self) -> None:
+        os.makedirs(os.path.dirname(self._filepath), exist_ok=True)
         with open(self._filepath, "w", encoding="utf-8") as f:
             json.dump(self._data, f, ensure_ascii=False, indent=2)
 

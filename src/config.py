@@ -33,4 +33,4 @@ MAX_NICKNAME_LENGTH = 15
 
 # --- ファイルパス ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-USER_DATA_FILE = os.path.join(BASE_DIR, '..', 'user_data.json')
+USER_DATA_FILE = os.path.join(BASE_DIR, '..', 'data', 'user_data.json')
