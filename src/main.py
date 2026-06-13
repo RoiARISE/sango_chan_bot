@@ -19,6 +19,7 @@ if __name__ == "__main__":
         await asyncio.gather(
             sango_chan.main_task(),
             sango_chan.timesignal_task(),
+            sango_chan.relationship_cleanup_task(),
         )
 
     try:

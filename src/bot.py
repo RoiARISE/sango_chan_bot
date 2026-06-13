@@ -30,7 +30,9 @@ class MyBot:
         self._store.load()
 
         self._follow_handler = FollowHandler(msk, self._store)
-        self._mention_handler = MentionHandler(msk, self._store, config.ADMIN_ID)
+        self._mention_handler = MentionHandler(
+            msk, self._store, config.ADMIN_ID, cleanup_callback=self.run_manual_cleanup
+        )
         self._timeline_handler = TimelineHandler(msk, self._store, self.my_id)
 
         logger.info("botが起動しました")
@@ -104,3 +106,101 @@ class MyBot:
                     logger.info("時報投稿: %d時", hour)
                 except Exception:
                     logger.error("時報投稿に失敗", exc_info=True)
+
+    async def relationship_cleanup_task(self):
+        """定期的にユーザーとのFF関係をチェックし、崩れていたら解除・削除する (毎日 00:00 と 12:00 JST に実行)"""
+        logger.info("FF関係クリーンアップタスクを起動しました")
+        JST = timezone(timedelta(hours=9))
+        while True:
+            now = datetime.now(JST)
+            today_00 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            today_12 = now.replace(hour=12, minute=0, second=0, microsecond=0)
+            tomorrow_00 = today_00 + timedelta(days=1)
+
+            if now < today_00:
+                next_run = today_00
+            elif now < today_12:
+                next_run = today_12
+            else:
+                next_run = tomorrow_00
+
+            sleep_seconds = (next_run - now).total_seconds()
+            logger.info(
+                "次回の定期クリーンアップ実行予定時刻 (JST): %s (待機時間: %.1f秒)",
+                next_run.strftime("%Y-%m-%d %H:%M:%S"),
+                sleep_seconds
+            )
+            await asyncio.sleep(sleep_seconds)
+
+            logger.info("FF関係の定期クリーンアップを開始します...")
+            try:
+                # 定期チェック前にフォロー中ユーザーのリストを同期して最新化
+                await asyncio.to_thread(self._store.sync_followings)
+                await self.cleanup_inactive_relations()
+            except Exception:
+                logger.error("FF関係のクリーンアップ実行中にエラーが発生しました", exc_info=True)
+
+    async def run_manual_cleanup(self) -> tuple[int, int]:
+        """手動クリーンアップ実行用ラッパー: 同期を行ってからクリーンアップを実行する"""
+        await asyncio.to_thread(self._store.sync_followings)
+        return await self.cleanup_inactive_relations()
+
+    async def cleanup_inactive_relations(self) -> tuple[int, int]:
+        """相互フォロー（FF関係）が絶たれているユーザーを自動解除＆JSONから削除する"""
+        user_ids = list(self._store._data.keys())
+        if not user_ids:
+            return 0, 0
+
+        # 管理者は除外
+        user_ids = [uid for uid in user_ids if uid != config.ADMIN_ID]
+        if not user_ids:
+            return 0, 0
+
+        logger.info("検証対象ユーザー数: %d人", len(user_ids))
+        checked_count = len(user_ids)
+        removed_count = 0
+
+        # 50人ずつ一括チェック
+        chunk_size = 50
+        for i in range(0, len(user_ids), chunk_size):
+            chunk = user_ids[i : i + chunk_size]
+            try:
+                relations = await asyncio.to_thread(self.msk.users_relation, user_id=chunk)
+                if isinstance(relations, dict):
+                    relations = [relations]
+
+                for rel in relations:
+                    uid = rel.get("id")
+                    if not uid:
+                        continue
+
+                    is_following = rel.get("isFollowing", False)
+                    is_followed = rel.get("isFollowed", False)
+
+                    # 相互フォローでない場合
+                    if not (is_following and is_followed):
+                        user_record = self._store.get(uid)
+                        username = user_record.get("username", "unknown") if user_record else "unknown"
+
+                        logger.info(
+                            "FF外ユーザーを検出しました: %s (%s) [Following:%s, Followed:%s]",
+                            username, uid, is_following, is_followed
+                        )
+
+                        # フォロー中なら解除
+                        if is_following:
+                            try:
+                                await asyncio.to_thread(self.msk.following_delete, user_id=uid)
+                                logger.info("%s さんのフォローを自動解除しました", username)
+                            except Exception:
+                                logger.error("%s さんのフォロー自動解除に失敗しました", username, exc_info=True)
+
+                        # JSONストアから削除
+                        self._store.remove_user(uid)
+                        logger.info("%s さんのデータをJSONから削除しました", username)
+                        removed_count += 1
+            except Exception:
+                logger.error("関係性チェックのバッチ実行中にエラーが発生しました", exc_info=True)
+
+            await asyncio.sleep(2)
+        return checked_count, removed_count

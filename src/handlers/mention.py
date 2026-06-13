@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from typing import Callable, cast
+from typing import Awaitable, Callable, cast
 
 from misskey import Misskey
 
@@ -14,10 +14,17 @@ logger = logging.getLogger(__name__)
 
 
 class MentionHandler:
-    def __init__(self, msk: Misskey, store: UserStore, admin_id: str | None):
+    def __init__(
+        self,
+        msk: Misskey,
+        store: UserStore,
+        admin_id: str | None,
+        cleanup_callback: Callable[[], Awaitable[tuple[int, int]]] | None = None
+    ):
         self._msk = msk
         self._store = store
         self._admin_id = admin_id
+        self._cleanup_callback = cleanup_callback
 
     async def handle(self, note: dict) -> None:
         """メンションを受け取ったときの処理"""
@@ -25,9 +32,31 @@ class MentionHandler:
 
         if "フォローして" in text:
             await self._handle_follow_request(note)
+            return
         elif "フォロー解除して" in text:
             await self._handle_unfollow_request(note)
-        elif "って呼んで" in text or "と呼んで" in text:
+            return
+        elif "クリーンアップ" in text:
+            await self._handle_cleanup_command(note)
+            return
+
+        user = note["user"]
+        user_id = user["id"]
+
+        # 管理者以外のユーザーに対してFF関係（相互フォロー）をチェック
+        if user_id != self._admin_id:
+            try:
+                relation = await asyncio.to_thread(self._msk.users_show, user_id=user_id)
+                relation = cast(dict, relation)
+                is_mutual = relation.get("isFollowing") and relation.get("isFollowed")
+                if not is_mutual:
+                    logger.info("FF外からのメンションのため反応しません: %s (%s)", user.get("username"), user_id)
+                    return
+            except Exception:
+                logger.error("ユーザー関係性の取得に失敗したため処理を中断します: %s", user_id, exc_info=True)
+                return
+
+        if "って呼んで" in text or "と呼んで" in text:
             await self._handle_nickname_set(note)
         elif "呼び名を忘れて" in text or "あだ名を消して" in text:
             await self._handle_nickname_clear(note)
@@ -172,6 +201,52 @@ class MentionHandler:
                 visibility=vis
             )
 
+    async def _handle_cleanup_command(self, note: dict) -> None:
+        user = note["user"]
+        user_id = user["id"]
+        vis = note.get("visibility", "public")
+
+        if user_id != self._admin_id:
+            await asyncio.to_thread(
+                self._msk.notes_create,
+                text="この機能は使える人が限られてるんだ。ゴメンね",
+                reply_id=note["id"],
+                visibility=vis
+            )
+            return
+
+        await asyncio.to_thread(
+            self._msk.notes_create,
+            text="関係性のクリーンアップを確認するから、少し待っててね……",
+            reply_id=note["id"],
+            visibility=vis
+        )
+
+        if self._cleanup_callback:
+            try:
+                checked_count, removed_count = await self._cleanup_callback()
+                await asyncio.to_thread(
+                    self._msk.notes_create,
+                    text=f"終わったよー\n検証対象: {checked_count}人\n削除/解除対象: {removed_count}人",
+                    reply_id=note["id"],
+                    visibility=vis
+                )
+            except Exception:
+                logger.error("手動クリーンアップ実行エラー", exc_info=True)
+                await asyncio.to_thread(
+                    self._msk.notes_create,
+                    text="ごめん、クリーンアップ中にエラーが発生しちゃったみたい……",
+                    reply_id=note["id"],
+                    visibility=vis
+                )
+        else:
+            await asyncio.to_thread(
+                self._msk.notes_create,
+                text="クリーンアップ機能が正しく設定されていないみたいだよ",
+                reply_id=note["id"],
+                visibility=vis
+            )
+
     async def _handle_nickname_set(self, note: dict) -> None:
         user = note["user"]
         user_id = user["id"]
@@ -268,9 +343,7 @@ class MentionHandler:
             await asyncio.sleep(10)
             await asyncio.to_thread(
                 self._msk.notes_create,
-                text="計測中だよ、いまは話しかけないでね……",
-                reply_id=note["id"],
-                visibility=vis
+                text="計測中だよ、いまは話しかけないでね……"
             )
             speed_result = await speedtest_task
 
