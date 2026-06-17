@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import re
 from typing import Awaitable, Callable, cast
 
@@ -25,6 +26,7 @@ class MentionHandler:
         self._store = store
         self._admin_id = admin_id
         self._cleanup_callback = cleanup_callback
+        self._todo_stop_events: dict[str, asyncio.Event] = {}
 
     async def handle(self, note: dict) -> None:
         """メンションを受け取ったときの処理"""
@@ -55,6 +57,20 @@ class MentionHandler:
             except Exception:
                 logger.error("ユーザー関係性の取得に失敗したため処理を中断します: %s", user_id, exc_info=True)
                 return
+
+        # Todoリマインダー完了チェック（「やった」返信で停止）
+        reply_id = note.get("replyId")
+        if "やった" in text and reply_id and reply_id in self._todo_stop_events:
+            self._todo_stop_events[reply_id].set()
+            vis = note.get("visibility", "public")
+            #name = self._store.get_display_name(user_id, user)
+            await asyncio.to_thread(
+                self._msk.notes_create,
+                text=f"終わらせたんだね、お疲れさま",
+                reply_id=note["id"],
+                visibility=vis
+            )
+            return
 
         if "って呼んで" in text or "と呼んで" in text:
             await self._handle_nickname_set(note)
@@ -388,17 +404,62 @@ class MentionHandler:
 
         text_to_send = "これやった？"
         if user_id == self._admin_id:
-            text_to_send = "管理者ちゃん、これやった？"
+            text_to_send = "ロイちゃん、これやった？"
 
-        delay = 60
-        logger.debug("Todoリマインダー 開始 (待機 %s秒): %s", delay, note_id)
-        await asyncio.sleep(delay)
+        await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note_id, reaction="👍")
 
-        logger.debug("Todoリマインダー実行 (vis: %s): %s", vis, note_id)
-        if vis == "followers":
-            await asyncio.to_thread(self._msk.notes_create, text=text_to_send, reply_id=note_id, visibility=vis)
-        else:
-            await asyncio.to_thread(self._msk.notes_create, text=text_to_send, renote_id=note_id, visibility=vis)
+        stop_event = asyncio.Event()
+        self._todo_stop_events[note_id] = stop_event
+
+        try:
+            while not stop_event.is_set():
+                delay = random.randint(600, 43200)
+                logger.debug(
+                    "Todoリマインダー 開始 (待機 %s秒 / 約%s分): %s",
+                    delay, delay // 60, note_id
+                )
+
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=delay)
+                    break  # イベントが発火 → ループ終了
+                except asyncio.TimeoutError:
+                    pass  # 待機完了 → リマインダー送信へ
+
+                if stop_event.is_set():
+                    break
+
+                logger.debug("Todoリマインダー実行 (vis: %s): %s", vis, note_id)
+                try:
+                    if vis == "followers":
+                        result = await asyncio.to_thread(
+                            self._msk.notes_create,
+                            text=text_to_send,
+                            reply_id=note_id,
+                            visibility=vis
+                        )
+                    else:
+                        result = await asyncio.to_thread(
+                            self._msk.notes_create,
+                            text=text_to_send,
+                            reply_id=note_id,
+                            visibility=vis
+                        )
+
+                    # リマインダーのノートIDを追跡（「やった」返信の検知用）
+                    if isinstance(result, dict):
+                        created = result.get("createdNote", result)
+                        reminder_id = created.get("id")
+                        if reminder_id:
+                            self._todo_stop_events[reminder_id] = stop_event
+                except Exception:
+                    logger.error("Todoリマインダー送信エラー: %s", note_id, exc_info=True)
+                    break
+        finally:
+            # この stop_event に紐づく全エントリを削除
+            to_remove = [k for k, v in self._todo_stop_events.items() if v is stop_event]
+            for k in to_remove:
+                self._todo_stop_events.pop(k, None)
+            logger.debug("Todoリマインダー終了: %s", note_id)
 
     async def _handle_llm(self, note: dict) -> None:
         user = note["user"]

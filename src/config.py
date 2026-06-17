@@ -29,7 +29,7 @@ LLM_MODEL = os.getenv('LLM_MODEL')
 
 # --- Bot設定 ---
 ADMIN_ID = os.getenv('ADMIN_ID')
-MAX_NICKNAME_LENGTH = 15
+MAX_NICKNAME_LENGTH = 10
 
 # --- ファイルパス ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
