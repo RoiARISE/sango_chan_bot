@@ -4,3 +4,5 @@ speedtest-cli==2.1.3
 python-dotenv==1.2.2
 httpx==0.28.1
 watchdog==6.0.0
+# Google Cloud Vertex AI / Agent Platform 認証用 (テスト用に追加)
+google-auth>=2.0.0

@@ -48,7 +48,13 @@ async def _update_user_profile_in_background(
 
 
 async def run_llm(
-    user_id: str, user_name: str, text: str, is_reply: bool = False, store: UserStore | None = None
+    user_id: str,
+    user_name: str,
+    text: str,
+    is_reply: bool = False,
+    store: UserStore | None = None,
+    image_data_urls: list[str] | None = None,
+    has_sensitive_image: bool = False,
 ) -> str:
     """
     botから呼び出されるLLM実行関数。
@@ -68,7 +74,17 @@ async def run_llm(
 
     async with lock:
         # LLMに「誰からのメッセージか」を意識させるために名前を差し込む
-        prompt_with_name = f"[{user_name}さんからのメッセージ]\n{text}"
+        display_text = text.strip() if text and text.strip() else ""
+        if not display_text and image_data_urls:
+            display_text = "（画像が送信されました）"
+
+        prompt_with_name = f"[{user_name}さんからのメッセージ]\n{display_text}"
+        if image_data_urls:
+            prompt_with_name += "\n[画像が添付されています]"
+            if has_sensitive_image:
+                prompt_with_name += " (注: センシティブ指定されている画像です)"
+
+        # 履歴にはBase64ではなくテキスト情報のみを保存（トークン肥大化と分析エラーを防ぐ）
         user_memories[user_id].append({"role": "user", "content": prompt_with_name})
 
         # ユーザープロフィールと親密度をストアから取得
@@ -80,7 +96,10 @@ async def run_llm(
 
         try:
             result = await openrouter.chat_with_history(
-                user_memories[user_id], user_profile=user_profile, intimacy=intimacy
+                user_memories[user_id],
+                user_profile=user_profile,
+                intimacy=intimacy,
+                image_data_urls=image_data_urls,
             )
             user_memories[user_id].append({"role": "assistant", "content": result})
             # 記憶が上限を超えたら、古いものから忘れる

@@ -7,7 +7,7 @@ from typing import Awaitable, Callable, cast
 from misskey import Misskey
 
 from .. import config, responses, utils
-from ..services import llm, speedtest
+from ..services import image_utils, llm, speedtest
 from ..stores.user_store import UserStore
 from ..utils import create_mention_string
 
@@ -72,6 +72,8 @@ class MentionHandler:
             )
             return
 
+        direct_images, direct_sensitive = self._extract_images_from_note(note)
+
         if "って呼んで" in text or "と呼んで" in text:
             await self._handle_nickname_set(note)
         elif "呼び名を忘れて" in text or "あだ名を消して" in text:
@@ -80,8 +82,8 @@ class MentionHandler:
             await self._handle_speedtest(note)
         elif "todo" in text:
             await self._handle_todo(note)
-        elif "+LLM" in text or "さんご" in text:
-            await self._handle_llm(note)
+        elif "+LLM" in text or "さんご" in text or direct_images:
+            await self._handle_llm(note, direct_images=direct_images, direct_sensitive=direct_sensitive)
         elif "さんごちゃーん" in text or "さんごちゃ〜ん" in text:
             vis = note.get("visibility", "public")
             await asyncio.sleep(1)
@@ -461,7 +463,37 @@ class MentionHandler:
                 self._todo_stop_events.pop(k, None)
             logger.debug("Todoリマインダー終了: %s", note_id)
 
-    async def _handle_llm(self, note: dict) -> None:
+    def _extract_images_from_note(self, note: dict) -> tuple[list[str], bool]:
+        """ノートから画像URLのリストと、センシティブ画像が含まれているかのフラグを返す"""
+        files = note.get("files", [])
+        image_urls = []
+        has_sensitive = False
+        for f in files:
+            file_type = f.get("type", "")
+            if file_type.startswith("image/"):
+                url = f.get("url")
+                if url:
+                    image_urls.append(url)
+                    if f.get("isSensitive"):
+                        has_sensitive = True
+        return image_urls, has_sensitive
+
+    async def _fetch_parent_images(self, reply_id: str) -> tuple[list[str], bool]:
+        """リプライ先の親ノートから画像URLとセンシティブフラグを取得する"""
+        try:
+            parent_note = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
+            if isinstance(parent_note, dict):
+                return self._extract_images_from_note(parent_note)
+        except Exception as e:
+            logger.debug("親ノート画像取得スキップ/エラー (%s): %s", reply_id, e)
+        return [], False
+
+    async def _handle_llm(
+        self,
+        note: dict,
+        direct_images: list[str] | None = None,
+        direct_sensitive: bool = False,
+    ) -> None:
         user = note["user"]
         user_id = user["id"]
         text = note.get("text", "")
@@ -470,19 +502,29 @@ class MentionHandler:
 
         async def process():
             await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note["id"], reaction="💭")
-            cleaned_text = (
-                text
-                .replace("+LLM", "")
-                .replace("@sango", "")
-                .replace("@sango@3.5mbps.net", "")
-                .replace("@miiko", "")
-                .replace("@miiko@3.5mbps.net", "")
-                .replace("@ten", "")
-                .replace("@ten@3.5mbps.net", "")
-                .strip()
-            )
+            cleaned_text = re.sub(r'\+LLM|@\w+(?:@[\w.]+)?', '', text).strip()
             user_name = self._store.get_display_name(user_id, user)
-            reply = await llm.run_llm(user_id, user_name, cleaned_text, is_reply, self._store)
+
+            # 画像URLの特定（直接添付画像、またはリプライ親ノートの画像）
+            image_urls = list(direct_images) if direct_images else []
+            has_sensitive = direct_sensitive
+            if not image_urls and is_reply and note.get("replyId"):
+                image_urls, has_sensitive = await self._fetch_parent_images(note["replyId"])
+
+            # 画像をBase64 Data URL形式にダウンロード＆変換
+            image_data_urls = None
+            if image_urls:
+                image_data_urls = await image_utils.fetch_images_as_data_urls(image_urls)
+
+            reply = await llm.run_llm(
+                user_id=user_id,
+                user_name=user_name,
+                text=cleaned_text,
+                is_reply=is_reply,
+                store=self._store,
+                image_data_urls=image_data_urls,
+                has_sensitive_image=has_sensitive,
+            )
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text=reply,

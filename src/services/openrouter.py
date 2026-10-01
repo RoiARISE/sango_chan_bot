@@ -6,6 +6,40 @@ from .. import config
 
 logger = logging.getLogger(__name__)
 
+# ==============================================================================
+# Google Cloud (Agent Platform / Vertex AI) 認証対応 (テスト用)
+# 元のコードに戻す場合は _get_auth_headers を使っている箇所を元に戻し、ここを削除してください
+# ==============================================================================
+_gcp_credentials = None
+
+def _get_auth_headers() -> dict:
+    """
+    認証ヘッダーを取得する。
+    - config.LLM_API_KEY が設定されている場合は従来の固定APIキーを使用
+    - 未設定（または空）の場合は Google Cloud (ADC / サービスアカウント) からOAuth2アクセストークンを自動取得・更新
+    """
+    global _gcp_credentials
+
+    # LLM_API_KEY がある場合は既存の方式（OpenRouter等）をそのまま使用
+    if config.LLM_API_KEY:
+        return {"Authorization": f"Bearer {config.LLM_API_KEY}"}
+
+    # Google Cloud IAM トークン取得
+    try:
+        from google.auth import default
+        from google.auth.transport.requests import Request
+
+        if _gcp_credentials is None:
+            _gcp_credentials, _ = default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+
+        if not _gcp_credentials.valid:
+            _gcp_credentials.refresh(Request())
+
+        return {"Authorization": f"Bearer {_gcp_credentials.token}"}
+    except Exception as e:
+        logger.error("Google Cloud認証トークンの取得に失敗しました: %s", e, exc_info=True)
+        return {"Authorization": f"Bearer {config.LLM_API_KEY}"}
+
 # TODO: いいかんじに置き換えてください
 SYSTEM_PROMPT = """\
 以下の設定をもとに、「さんご」として振る舞い、来た投稿に対し自然な形で応答するようにしてください。
@@ -49,8 +83,29 @@ SYSTEM_PROMPT = """\
 ・あまり冷たくなりすぎないような返信を心がける
 """
 
+def _get_intimacy_instruction(intimacy: int) -> str:
+    """親密度の数値に応じた態度・口調の指示テキストを返す"""
+    if intimacy >= +25:
+        return (
+            f"【親密度: {intimacy} — やや親しい・安心】\n"
+            "この相手のことは、すこしだけ好ましく思っている。\n"
+            "会話の際、すこしだけ長文になる傾向がある"
+        )
+    elif intimacy <= -25:
+        return (
+            f"【親密度: {intimacy} — やや苦手・警戒】\n"
+            "この相手にはいつもどおり接しようとはするが、短文になる傾向がある\n"
+            "続けて話を振らなくなることがある"
+        )
+    else:
+        return f"あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
 
-async def chat_with_history(messages_history: list, user_profile: str = "", intimacy: int = 0) -> str:
+async def chat_with_history(
+    messages_history: list,
+    user_profile: str = "",
+    intimacy: int = 0,
+    image_data_urls: list[str] | None = None,
+) -> str:
     if not config.LLM_ENABLE:
         # LLM機能無効時の発言
         # TODO: いいかんじに置き換えてください
@@ -70,15 +125,33 @@ async def chat_with_history(messages_history: list, user_profile: str = "", inti
     else:
         system_content += f"\n\n# あなたが把握している対話相手の情報\n- あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
 
-    messages = [{"role": "system", "content": system_content}] + messages_history
+    # 履歴をコピー（画像変換が元の履歴オブジェクトに影響しないようにする）
+    messages = [{"role": "system", "content": system_content}] + [dict(m) for m in messages_history]
+
+    # 画像が指定されている場合、最新のuserメッセージをマルチモーダル形式に変換
+    if image_data_urls and messages:
+        last_msg = messages[-1]
+        if last_msg.get("role") == "user":
+            content_list: list[dict] = [{"type": "text", "text": str(last_msg.get("content", ""))}]
+            for img_url in image_data_urls:
+                content_list.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": img_url
+                    }
+                })
+            messages[-1] = {"role": "user", "content": content_list}
 
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
                 url=f"{config.LLM_ENDPOINT}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.LLM_API_KEY}",
-                },
+                # --- 元のコード（OpenRouter / 固定APIキー）---
+                # headers={
+                #     "Authorization": f"Bearer {config.LLM_API_KEY}",
+                # },
+                # --- Google Cloud (Agent Platform) / 動的トークン対応 ---
+                headers=_get_auth_headers(),
                 json={
                     "model": config.LLM_MODEL,
                     "messages": messages,
@@ -155,7 +228,7 @@ async def analyze_user_interaction(
 2. **親密度の変化 (intimacy_change)**:
    最近の会話内容をもとに、さんごちゃんに対するユーザーの態度や親密さを評価し、親密度の増減値を以下のルールに従って決定してください。
    - **親密度の増加 (+1)**: ユーザーが温かい、友好的、またはさんごちゃんを思いやる発言をした場合。ただし、親密度はなかなか上がらないようにするため、顕著に好意的な発言である場合にのみ「+1」とします。少し話した程度や通常の挨拶・日常的な質問程度では「0」にしてください。
-   - **親密度の低下 (-1 〜 -10)**: ユーザーが冷たい、攻撃的、暴言、過度にからかう、または冗談の範疇を超えて過剰なまでにさんごちゃんを傷つけるような発言をした場合。そのネガティブさの度合いに応じて「-1」から「-10」の間でマイナス値を設定してください。しかしさんごちゃんはスルースキルが高いという設定のため、普通のからかい、ちょっとしたいじわる、センシティブな話題を振られてもすぐに親密度が大きく下がることはありません。
+   - **親密度の低下 (-1)**: ユーザーが冷たい、攻撃的、暴言、過度にからかう、または冗談の範疇を超えて過剰なまでにさんごちゃんを傷つけるような発言をした場合。しかしさんごちゃんはスルースキルが高いという設定のため、普通のからかい、ちょっとしたいじわる、センシティブな話題を振られても親密度は下がりません。
    - **変化なし (0)**: 上記のどちらにも当てはまらない、通常の日常会話や質問などの場合。
 
 現在のユーザー情報:
@@ -179,9 +252,12 @@ async def analyze_user_interaction(
         try:
             response = await client.post(
                 url=f"{config.LLM_ENDPOINT}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.LLM_API_KEY}",
-                },
+                # --- 元のコード（OpenRouter / 固定APIキー）---
+                # headers={
+                #     "Authorization": f"Bearer {config.LLM_API_KEY}",
+                # },
+                # --- Google Cloud (Agent Platform) / 動的トークン対応 ---
+                headers=_get_auth_headers(),
                 json={
                     "model": config.LLM_MODEL,
                     "messages": messages,
