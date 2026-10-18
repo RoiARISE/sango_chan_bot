@@ -14,6 +14,24 @@ from ..utils import create_mention_string
 logger = logging.getLogger(__name__)
 
 
+import misskey.exceptions
+
+# MisskeyAPIException が詳細なエラー情報(info等)を出力できるように拡張
+if not hasattr(misskey.exceptions.MisskeyAPIException, "_patched"):
+    _orig_init = misskey.exceptions.MisskeyAPIException.__init__
+
+    def _patched_init(self, response_dict: dict):
+        _orig_init(self, response_dict)
+        self.raw_error = response_dict.get("error", {})
+
+    misskey.exceptions.MisskeyAPIException.__init__ = _patched_init
+    misskey.exceptions.MisskeyAPIException.__str__ = lambda self: (
+        f"{self.code}({self.id}): {self.message} "
+        f"[詳細: {getattr(self, 'raw_error', {}).get('info', {})}]"
+    )
+    misskey.exceptions.MisskeyAPIException._patched = True
+
+
 class MentionHandler:
     def __init__(
         self,
@@ -27,6 +45,56 @@ class MentionHandler:
         self._admin_id = admin_id
         self._cleanup_callback = cleanup_callback
         self._todo_stop_events: dict[str, asyncio.Event] = {}
+
+    def _get_reply_kwargs(self, note: dict, text: str, **kwargs) -> dict:
+        vis = note.get("visibility", "public")
+        # 本文が空または空白のみの場合はフォールバック
+        clean_text = text if (text and str(text).strip()) else "……？"
+
+        # 文字数制限（Misskeyの上限は3000文字）
+        max_chars = 3000
+        trunc_notice = "\n\n（※文字数制限のため途中までを表示しています）"
+        if len(clean_text) > max_chars:
+            allowed_len = max_chars - len(trunc_notice)
+            clean_text = clean_text[:allowed_len] + trunc_notice
+            logger.warning("返信テキストが文字数上限(%d)を超えたため切り詰めました (元: %d文字)", max_chars, len(text))
+
+        params: dict = {
+            "text": clean_text,
+            "reply_id": note["id"],
+            "visibility": vis,
+            **kwargs,
+        }
+        if vis == "specified":
+            target_ids = set()
+            user_id = note.get("userId") or note.get("user", {}).get("id")
+            if user_id:
+                target_ids.add(user_id)
+            for uid in note.get("visibleUserIds") or []:
+                target_ids.add(uid)
+            if hasattr(self._store, "_my_id") and self._store._my_id:
+                target_ids.discard(self._store._my_id)
+            if not target_ids and user_id:
+                target_ids.add(user_id)
+            params["visible_user_ids"] = list(target_ids)
+        return params
+
+    async def _send_reply(self, note: dict, text: str, **kwargs) -> dict:
+        params = self._get_reply_kwargs(note, text=text, **kwargs)
+        logger.info(
+            "返信ノート送信: text=%r (長さ: %d), reply_id=%s, visibility=%s, visible_user_ids=%s",
+            params["text"][:30] + "..." if len(params["text"]) > 30 else params["text"],
+            len(params["text"]),
+            params.get("reply_id"),
+            params.get("visibility"),
+            params.get("visible_user_ids"),
+        )
+        try:
+            return await asyncio.to_thread(self._msk.notes_create, **params)
+        except Exception as e:
+            logger.error("notes_create 失敗: params=%s, error=%s", params, e, exc_info=True)
+            raise
+
 
     async def handle(self, note: dict) -> None:
         """メンションを受け取ったときの処理"""
@@ -62,14 +130,7 @@ class MentionHandler:
         reply_id = note.get("replyId")
         if "やった" in text and reply_id and reply_id in self._todo_stop_events:
             self._todo_stop_events[reply_id].set()
-            vis = note.get("visibility", "public")
-            #name = self._store.get_display_name(user_id, user)
-            await asyncio.to_thread(
-                self._msk.notes_create,
-                text=f"終わらせたんだね、お疲れさま",
-                reply_id=note["id"],
-                visibility=vis
-            )
+            await self._send_reply(note, text="終わらせたんだね、お疲れさま")
             return
 
         direct_images, direct_sensitive = self._extract_images_from_note(note)
@@ -85,23 +146,11 @@ class MentionHandler:
         elif "+LLM" in text or "さんご" in text or direct_images:
             await self._handle_llm(note, direct_images=direct_images, direct_sensitive=direct_sensitive)
         elif "さんごちゃーん" in text or "さんごちゃ〜ん" in text:
-            vis = note.get("visibility", "public")
             await asyncio.sleep(1)
-            await asyncio.to_thread(
-                self._msk.notes_create,
-                text="は〜い",
-                reply_id=note["id"],
-                visibility=vis
-            )
+            await self._send_reply(note, text="は〜い")
         elif "何が好き？" in text and note.get("replyId") is not None:
-            vis = note.get("visibility", "public")
             await asyncio.sleep(1)
-            await asyncio.to_thread(
-                self._msk.notes_create,
-                text="チョココーヒー よりもあ・な・た♪",
-                reply_id=note["id"],
-                visibility=vis
-            )
+            await self._send_reply(note, text="チョココーヒー よりもあ・な・た♪")
             await asyncio.sleep(10)
             await asyncio.to_thread(
                 self._msk.notes_create,
@@ -525,12 +574,7 @@ class MentionHandler:
                 image_data_urls=image_data_urls,
                 has_sensitive_image=has_sensitive,
             )
-            await asyncio.to_thread(
-                self._msk.notes_create,
-                text=reply,
-                reply_id=note["id"],
-                visibility=vis
-            )
+            await self._send_reply(note, text=reply)
 
         task = asyncio.create_task(process())
         task.add_done_callback(
@@ -569,12 +613,7 @@ class MentionHandler:
             if any(kw in text for kw in keywords):
                 if callable(response):
                     response = response()
-                await asyncio.to_thread(
-                    self._msk.notes_create,
-                    text=response,
-                    reply_id=note["id"],
-                    visibility=vis
-                )
+                await self._send_reply(note, text=response)
                 return True
         return False
 
@@ -587,18 +626,8 @@ class MentionHandler:
         count_str, sides_str = match.groups()
         rolls = responses.roll_dice(count_str, sides_str)
         if not rolls:
-            await asyncio.to_thread(
-                self._msk.notes_create,
-                text="……うーん？",
-                reply_id=note["id"],
-                visibility=vis
-            )
+            await self._send_reply(note, text="……うーん？")
         else:
             reply = f"{rolls[0]} だよ" if len(rolls) == 1 else f"{', '.join(map(str, rolls))} だよ"
             user_mention = create_mention_string(note["user"])
-            await asyncio.to_thread(
-                self._msk.notes_create,
-                text=f"{user_mention} {reply}",
-                reply_id=note["id"],
-                visibility=vis
-            )
+            await self._send_reply(note, text=f"{user_mention} {reply}")

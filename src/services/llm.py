@@ -18,6 +18,8 @@ async def _update_user_profile_in_background(
     user_id: str, user_name: str, history: list, current_profile: str, current_intimacy: int, store: UserStore
 ) -> None:
     try:
+        # 返信直後の連続リクエストによるクォータ超過(429)を避けるため少し待機
+        await asyncio.sleep(5)
         analysis = await openrouter.analyze_user_interaction(
             history, current_profile, current_intimacy, user_name
         )

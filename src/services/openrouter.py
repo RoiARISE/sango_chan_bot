@@ -81,6 +81,7 @@ SYSTEM_PROMPT = """\
 ・知らないことは知らないと答える。適当にごまかしたりしない
 ・ネタと真面目をうまく使い分ける。
 ・あまり冷たくなりすぎないような返信を心がける
+・1回の返信は長くなりすぎないように注意する（Misskeyの投稿制限があるため、どんなに長くても最大3000字までの出力とする）
 """
 
 def _get_intimacy_instruction(intimacy: int) -> str:
@@ -156,7 +157,7 @@ async def chat_with_history(
                     "model": config.LLM_MODEL,
                     "messages": messages,
                 },
-                timeout=30.0,
+                timeout=config.LLM_TIMEOUT,
             )
         except httpx.TimeoutException:
             logger.error("LLM通信タイムアウト: endpoint=%s, model=%s", config.LLM_ENDPOINT, config.LLM_MODEL, exc_info=True)
@@ -197,10 +198,11 @@ async def chat_with_history(
 
     message = choices[0].get("message", {})
     content = message.get("content")
-    if content is None:
-        logger.error("LLMレスポンスに content がありません: %s", body)
-        return "何かがおかしいかも…"
+    if not content or not str(content).strip():
+        logger.warning("LLMレスポンスの content が空です: body=%s", body)
+        return "うーん、うまく言葉が出てこなかったみたい……"
 
+    logger.info("LLM返信テキスト取得成功 (文字数: %d): %s", len(content), content[:50] + "..." if len(content) > 50 else content)
     return content
 
 
@@ -262,7 +264,7 @@ async def analyze_user_interaction(
                     "model": config.LLM_MODEL,
                     "messages": messages,
                 },
-                timeout=30.0,
+                timeout=config.LLM_TIMEOUT,
             )
         except Exception:
             logger.error("プロファイル分析用のLLM通信エラー", exc_info=True)

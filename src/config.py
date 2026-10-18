@@ -26,6 +26,11 @@ LLM_ENABLE = os.getenv('LLM_ENABLE')
 LLM_ENDPOINT = os.getenv('LLM_ENDPOINT')
 LLM_API_KEY = os.getenv('LLM_API_KEY')
 LLM_MODEL = os.getenv('LLM_MODEL')
+try:
+    LLM_TIMEOUT = float(os.getenv('LLM_TIMEOUT', '60.0'))
+except ValueError:
+    LLM_TIMEOUT = 60.0
+
 
 # --- Bot設定 ---
 ADMIN_ID = os.getenv('ADMIN_ID')
