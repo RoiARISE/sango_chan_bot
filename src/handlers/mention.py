@@ -129,8 +129,11 @@ class MentionHandler:
         # Todoリマインダー完了チェック（「やった」返信で停止）
         reply_id = note.get("replyId")
         if "やった" in text and reply_id and reply_id in self._todo_stop_events:
-            self._todo_stop_events[reply_id].set()
-            await self._send_reply(note, text="終わらせたんだね、お疲れさま")
+            stop_event = self._todo_stop_events[reply_id]
+            # リマインダーを止められるのは、Todoを作成した本人だけ
+            if getattr(stop_event, "owner_id", None) == user_id:
+                stop_event.set()
+                await self._send_reply(note, text="終わらせたんだね、お疲れさま")
             return
 
         direct_images, direct_sensitive = self._extract_images_from_note(note)
@@ -463,6 +466,7 @@ class MentionHandler:
         await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note_id, reaction="👍")
 
         stop_event = asyncio.Event()
+        stop_event.owner_id = user_id  # type: ignore[attr-defined]
         self._todo_stop_events[note_id] = stop_event
 
         try:
