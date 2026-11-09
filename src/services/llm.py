@@ -57,10 +57,10 @@ async def run_llm(
     store: UserStore | None = None,
     image_data_urls: list[str] | None = None,
     has_sensitive_image: bool = False,
-) -> str:
+) -> dict:
     """
     botから呼び出されるLLM実行関数。
-    ユーザーIDと名前を受け取り、会話履歴を管理する。
+    ユーザーIDと名前を受け取り、会話履歴を管理し、行動アクションを含む辞書を返す。
     """
     global user_memories, user_locks
 
@@ -86,6 +86,26 @@ async def run_llm(
             if has_sensitive_image:
                 prompt_with_name += " (注: センシティブ指定されている画像です)"
 
+        # ターン数（往復回数）の計算
+        history_turns = (len(user_memories[user_id]) // 2) + 1
+
+        # コスト爆発防止の安全弁（保険: 8往復以上で強制リアクション終了）
+        if history_turns > 8:
+            logger.info("[%s] 会話ターン数が安全上限(%d)に達したため、リアクションで会話を終了します", user_name, history_turns)
+            if store is not None and user_memories[user_id]:
+                asyncio.create_task(
+                    _update_user_profile_in_background(
+                        user_id, user_name, list(user_memories[user_id]), "", 0, store
+                    )
+                )
+            user_memories[user_id] = []
+            return {
+                "action": "react",
+                "reaction": "💤",
+                "reply": "",
+                "reason": "safety_turn_limit_reached",
+            }
+
         # 履歴にはBase64ではなくテキスト情報のみを保存（トークン肥大化と分析エラーを防ぐ）
         user_memories[user_id].append({"role": "user", "content": prompt_with_name})
 
@@ -96,28 +116,46 @@ async def run_llm(
             user_profile = store.get_profile(user_id)
             intimacy = store.get_intimacy(user_id)
 
+        # 会話進行コンテキストの生成
+        convo_context = f"現在この相手とのスレッドでのやりとりは {history_turns} ターン目です。"
+        if history_turns >= 4:
+            convo_context += " 話題が一区切りついている場合は、無理に会話を続けず react（リアクションのみで終了）を選択してフェードアウトしてください。"
+
         try:
             result = await openrouter.chat_with_history(
                 user_memories[user_id],
                 user_profile=user_profile,
                 intimacy=intimacy,
                 image_data_urls=image_data_urls,
+                convo_context=convo_context,
             )
-            user_memories[user_id].append({"role": "assistant", "content": result})
-            # 記憶が上限を超えたら、古いものから忘れる
-            if len(user_memories[user_id]) > MAX_HISTORY:
-                user_memories[user_id] = user_memories[user_id][-MAX_HISTORY:]
 
-            # バックグラウンドでプロフィール/親密度更新タスクを実行
-            if store is not None:
-                asyncio.create_task(
-                    _update_user_profile_in_background(
-                        user_id, user_name, list(user_memories[user_id]), user_profile, intimacy, store
+            action = result.get("action", "reply")
+            reply_text = result.get("reply", "")
+
+            if action == "reply":
+                user_memories[user_id].append({"role": "assistant", "content": reply_text})
+                # 記憶が上限を超えたら、古いものから忘れる
+                if len(user_memories[user_id]) > MAX_HISTORY:
+                    user_memories[user_id] = user_memories[user_id][-MAX_HISTORY:]
+            elif action in ("react", "none"):
+                # 会話がフェードアウト（終了）したため、会話全体の履歴をもとにプロフィールを1度だけ更新
+                if store is not None and user_memories[user_id]:
+                    asyncio.create_task(
+                        _update_user_profile_in_background(
+                            user_id, user_name, list(user_memories[user_id]), user_profile, intimacy, store
+                        )
                     )
-                )
+                # 会話終了につきメモリをクリア
+                user_memories[user_id] = []
 
             return result
         except Exception as e:
             if user_memories[user_id]:
                 user_memories[user_id].pop()
-            return f"ごめん、LLMでエラーが起きちゃったみたい…\n`{e}`"
+            return {
+                "action": "reply",
+                "reaction": "⚠️",
+                "reply": f"ごめん、LLMでエラーが起きちゃったみたい…\n`{e}`",
+                "reason": "run_llm_exception",
+            }

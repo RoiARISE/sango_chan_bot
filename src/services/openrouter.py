@@ -82,6 +82,25 @@ SYSTEM_PROMPT = """\
 ・ネタと真面目をうまく使い分ける。
 ・あまり冷たくなりすぎないような返信を心がける
 ・1回の返信は長くなりすぎないように注意する（Misskeyの投稿制限があるため、どんなに長くても最大3000字までの出力とする）
+
+# 会話の引き際とフェードアウトのルール（重要）
+あなたは人間のように「会話の空気や潮時」を読み、必要に応じて自然に会話をフェードアウト（またはリアクションのみで終了）させることができます。
+・会話が盛り上がっているときや質問されたときは自然に返信してください（action: "reply"）。
+・相手の発言が以下のような「会話の区切り・終了」を示している場合、無理に新しい話題や質問を投げかけて会話を引き延ばさず、絵文字リアクションのみ（action: "react"）を返して会話を終了してください。
+  - 「うん」「そうなんだ」「なるほど」「へー」「了解」「わかった」などの相槌・了解
+  - 「おやすみ」「またね」「じゃあね」「ばいばい」「また明日」などの終了・別れの挨拶
+  - 「ありがとう」「助かった」などの感謝で話題が完結したとき
+  - 短い笑い（「草」「笑」）やスタンプ的な発言で、これ以上話を広げる必要がないとき
+・返信（action: "reply"）する場合でも、会話が終息に向かっているときは、疑問文で返さず、短い相槌や締めくくりの言葉にしてください。
+
+# 出力フォーマット
+出力は必ず以下のキーを持つJSONオブジェクトのみを出力してください。マークダウンの装飾（```jsonなど）や余計な文章は一切含めないでください。
+{
+  "action": "reply" または "react" または "none",
+  "reaction": "❤️や👍、💤、🙏、💭などのMisskeyで付与する適切な絵文字（reactまたはreply時に付与）",
+  "reply": "さんごとしての返信テキスト（actionがreplyの場合のみ。reactやnoneの場合は空文字）",
+  "reason": "このアクションとリアクションを選んだ簡潔な理由"
+}
 """
 
 def _get_intimacy_instruction(intimacy: int) -> str:
@@ -101,16 +120,95 @@ def _get_intimacy_instruction(intimacy: int) -> str:
     else:
         return f"あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
 
+def _parse_llm_response(content: str) -> dict:
+    """LLMのレスポンス文字列からJSONオブジェクトを抽出し、action等の辞書を返す"""
+    import json
+    import re
+
+    stripped = content.strip()
+
+    # そのまま json.loads できるか試行
+    try:
+        data = json.loads(stripped)
+        if isinstance(data, dict):
+            return _normalize_response_dict(data)
+    except Exception:
+        pass
+
+    # ```json ... ``` ブロックを抽出して試行
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            if isinstance(data, dict):
+                return _normalize_response_dict(data)
+        except Exception:
+            pass
+
+    # 最初の { から 最後の } までを抽出して試行
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and start < end:
+        try:
+            data = json.loads(stripped[start:end+1])
+            if isinstance(data, dict):
+                return _normalize_response_dict(data)
+        except Exception:
+            pass
+
+    # パースに失敗した場合は通常返信としてフォールバック
+    return {
+        "action": "reply",
+        "reaction": "❤️",
+        "reply": stripped,
+        "reason": "json_parse_fallback",
+    }
+
+
+def _normalize_response_dict(data: dict) -> dict:
+    """パースした辞書データの整合性を整える"""
+    action = str(data.get("action", "reply")).lower().strip()
+    if action not in ("reply", "react", "none"):
+        action = "reply"
+
+    reaction = data.get("reaction")
+    if not reaction or not isinstance(reaction, str):
+        reaction = "❤️"
+
+    reply = data.get("reply", "")
+    if reply is None:
+        reply = ""
+    reply = str(reply).strip()
+
+    # actionがreplyなのに返信テキストが空の場合はreactまたはフォールバック
+    if action == "reply" and not reply:
+        action = "react"
+
+    reason = str(data.get("reason", ""))
+
+    return {
+        "action": action,
+        "reaction": reaction,
+        "reply": reply,
+        "reason": reason,
+    }
+
+
 async def chat_with_history(
     messages_history: list,
     user_profile: str = "",
     intimacy: int = 0,
     image_data_urls: list[str] | None = None,
-) -> str:
+    convo_context: str = "",
+) -> dict:
     if not config.LLM_ENABLE:
         # LLM機能無効時の発言
-        # TODO: いいかんじに置き換えてください
-        return "その機能は使えないんだ。ごめんね。"
+        return {
+            "action": "reply",
+            "reaction": "❓",
+            "reply": "その機能は使えないんだ。ごめんね。",
+            "reason": "disabled",
+        }
 
     # システムプロンプトの直後に、過去の会話履歴を繋げる
     from datetime import datetime, timezone, timedelta
@@ -125,6 +223,9 @@ async def chat_with_history(
         system_content += f"\n\n# あなたが把握している対話相手の情報\n- 特徴: {user_profile}\n- あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
     else:
         system_content += f"\n\n# あなたが把握している対話相手の情報\n- あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
+
+    if convo_context:
+        system_content += f"\n\n# 会話スレッドの進行状況\n- {convo_context}"
 
     # 履歴をコピー（画像変換が元の履歴オブジェクトに影響しないようにする）
     messages = [{"role": "system", "content": system_content}] + [dict(m) for m in messages_history]
@@ -161,49 +262,88 @@ async def chat_with_history(
             )
         except httpx.TimeoutException:
             logger.error("LLM通信タイムアウト: endpoint=%s, model=%s", config.LLM_ENDPOINT, config.LLM_MODEL, exc_info=True)
-            # 通信エラー時の発言
-            # TODO: いいかんじに置き換えてください
-            return "通信中にエラーが起きたみたい…"
+            return {
+                "action": "reply",
+                "reaction": "⚠️",
+                "reply": "通信中にエラーが起きたみたい…",
+                "reason": "timeout",
+            }
         except httpx.RequestError:
             logger.error("LLM通信エラー: endpoint=%s, model=%s", config.LLM_ENDPOINT, config.LLM_MODEL, exc_info=True)
-            # 通信エラー時の発言
-            # TODO: いいかんじに置き換えてください
-            return "通信中にエラーが起きたみたい…"
+            return {
+                "action": "reply",
+                "reaction": "⚠️",
+                "reply": "通信中にエラーが起きたみたい…",
+                "reason": "request_error",
+            }
         except Exception:
             logger.error("LLM予期せぬエラー: endpoint=%s, model=%s", config.LLM_ENDPOINT, config.LLM_MODEL, exc_info=True)
-            return "通信中にエラーが起きたみたい…"
+            return {
+                "action": "reply",
+                "reaction": "⚠️",
+                "reply": "通信中にエラーが起きたみたい…",
+                "reason": "unexpected_error",
+            }
 
     if not response.is_success:
         logger.error("LLMエラーレスポンス: status=%s, body=%s", response.status_code, response.text)
-        # LLMモデルがエラーを吐いたときの発言
-        # TODO: いいかんじに置き換えてください
-        return "何かがおかしいかも…"
+        return {
+            "action": "reply",
+            "reaction": "⚠️",
+            "reply": "何かがおかしいかも…",
+            "reason": f"status_{response.status_code}",
+        }
 
     try:
         body = response.json()
     except Exception:
         logger.error("LLMレスポンスのJSONパースエラー: raw=%s", response.text, exc_info=True)
-        return "何かがおかしいかも…"
+        return {
+            "action": "reply",
+            "reaction": "⚠️",
+            "reply": "何かがおかしいかも…",
+            "reason": "raw_json_parse_error",
+        }
 
     if "error" in body:
         logger.error("LLMエラー: %s", body["error"])
-        # LLMモデルがエラーを吐いたときの発言
-        # TODO: いいかんじに置き換えてください
-        return "何かがおかしいかも…"
+        return {
+            "action": "reply",
+            "reaction": "⚠️",
+            "reply": "何かがおかしいかも…",
+            "reason": "api_error_body",
+        }
 
     choices = body.get("choices")
     if not choices or not isinstance(choices, list):
         logger.error("LLMレスポンスに choices がありません: %s", body)
-        return "何かがおかしいかも…"
+        return {
+            "action": "reply",
+            "reaction": "⚠️",
+            "reply": "何かがおかしいかも…",
+            "reason": "no_choices",
+        }
 
     message = choices[0].get("message", {})
     content = message.get("content")
     if not content or not str(content).strip():
         logger.warning("LLMレスポンスの content が空です: body=%s", body)
-        return "うーん、うまく言葉が出てこなかったみたい……"
+        return {
+            "action": "reply",
+            "reaction": "❓",
+            "reply": "うーん、うまく言葉が出てこなかったみたい……",
+            "reason": "empty_content",
+        }
 
-    logger.info("LLM返信テキスト取得成功 (文字数: %d): %s", len(content), content[:50] + "..." if len(content) > 50 else content)
-    return content
+    parsed = _parse_llm_response(content)
+    logger.info(
+        "LLM応答処理完了: action=%s, reaction=%s, reason=%s (返信長: %d)",
+        parsed["action"],
+        parsed.get("reaction"),
+        parsed.get("reason"),
+        len(parsed.get("reply", "")),
+    )
+    return parsed
 
 
 async def analyze_user_interaction(

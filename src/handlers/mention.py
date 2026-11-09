@@ -134,6 +134,7 @@ class MentionHandler:
             return
 
         direct_images, direct_sensitive = self._extract_images_from_note(note)
+        cleaned_text = re.sub(r'\+LLM|@\w+(?:@[\w.]+)?', '', text).strip()
 
         if "って呼んで" in text or "と呼んで" in text:
             await self._handle_nickname_set(note)
@@ -143,11 +144,6 @@ class MentionHandler:
             await self._handle_speedtest(note)
         elif "todo" in text:
             await self._handle_todo(note)
-        elif "+LLM" in text or "さんご" in text or direct_images:
-            await self._handle_llm(note, direct_images=direct_images, direct_sensitive=direct_sensitive)
-        elif "さんごちゃーん" in text or "さんごちゃ〜ん" in text:
-            await asyncio.sleep(1)
-            await self._send_reply(note, text="は〜い")
         elif "何が好き？" in text and note.get("replyId") is not None:
             await asyncio.sleep(1)
             await self._send_reply(note, text="チョココーヒー よりもあ・な・た♪")
@@ -156,6 +152,13 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="さっきのなに……？"
             )
+        elif re.search(r"(\d+)d(\d+)", text.lower()):
+            await self._handle_dice(note)
+        elif cleaned_text or direct_images:
+            await self._handle_llm(note, direct_images=direct_images, direct_sensitive=direct_sensitive)
+        elif "さんごちゃーん" in text or "さんごちゃ〜ん" in text:
+            await asyncio.sleep(1)
+            await self._send_reply(note, text="は〜い")
         else:
             handled = await self._dispatch_command_list(note)
             if not handled:
@@ -537,6 +540,33 @@ class MentionHandler:
             logger.debug("親ノート画像取得スキップ/エラー (%s): %s", reply_id, e)
         return [], False
 
+    async def _is_reply_to_me(self, note: dict) -> bool:
+        """このノートが自分宛てのリプライ（会話スレッドの継続）かどうかを判定する"""
+        reply_id = note.get("replyId")
+        if not reply_id:
+            return False
+
+        my_id = getattr(self._store, "_my_id", None)
+        if not my_id:
+            return False
+
+        # MisskeyのストリーミングAPIのnoteオブジェクトに reply が含まれている場合
+        reply_note = note.get("reply")
+        if isinstance(reply_note, dict):
+            parent_uid = reply_note.get("userId") or reply_note.get("user", {}).get("id")
+            return parent_uid == my_id
+
+        # 含まれていない場合はAPIで親ノートを取得
+        try:
+            parent = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
+            if isinstance(parent, dict):
+                parent_uid = parent.get("userId") or parent.get("user", {}).get("id")
+                return parent_uid == my_id
+        except Exception as e:
+            logger.debug("親ノート取得エラー (%s): %s", reply_id, e)
+
+        return False
+
     async def _handle_llm(
         self,
         note: dict,
@@ -550,7 +580,11 @@ class MentionHandler:
         is_reply = note.get("replyId") is not None
 
         async def process():
-            await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note["id"], reaction="💭")
+            try:
+                await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note["id"], reaction="💭")
+            except Exception:
+                pass
+
             cleaned_text = re.sub(r'\+LLM|@\w+(?:@[\w.]+)?', '', text).strip()
             user_name = self._store.get_display_name(user_id, user)
 
@@ -565,7 +599,7 @@ class MentionHandler:
             if image_urls:
                 image_data_urls = await image_utils.fetch_images_as_data_urls(image_urls)
 
-            reply = await llm.run_llm(
+            result = await llm.run_llm(
                 user_id=user_id,
                 user_name=user_name,
                 text=cleaned_text,
@@ -574,7 +608,41 @@ class MentionHandler:
                 image_data_urls=image_data_urls,
                 has_sensitive_image=has_sensitive,
             )
-            await self._send_reply(note, text=reply)
+
+            action = result.get("action", "reply")
+            reaction = result.get("reaction") or "❤️"
+            reply_text = result.get("reply", "")
+            reason = result.get("reason", "")
+
+            # 考え中リアクション 💭 を削除
+            try:
+                await asyncio.to_thread(self._msk.notes_reactions_delete, note_id=note["id"])
+            except Exception:
+                pass
+
+            if action == "react":
+                # リアクションのみ付与して会話終了（フェードアウト）
+                logger.info(
+                    "[%s] 会話をリアクションでフェードアウト終了します: reaction=%s, reason=%s",
+                    user_name, reaction, reason
+                )
+                try:
+                    await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note["id"], reaction=reaction)
+                except Exception as e:
+                    logger.warning("終了リアクション付与に失敗: %s", e)
+
+            elif action == "none":
+                # 既読スルー（何もしない）
+                logger.info("[%s] 会話を沈黙で終了します: reason=%s", user_name, reason)
+
+            else:
+                # 通常返信 (action == "reply")
+                if reaction:
+                    try:
+                        await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note["id"], reaction=reaction)
+                    except Exception:
+                        pass
+                await self._send_reply(note, text=reply_text)
 
         task = asyncio.create_task(process())
         task.add_done_callback(
