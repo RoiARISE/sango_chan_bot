@@ -28,8 +28,9 @@ def test_reply_kwargs_copies_note_id_and_visibility(handler):
 
     assert params["text"] == "やあ"
     assert params["reply_id"] == "n1"
-    assert params["visibility"] == "followers"
-    assert "visible_user_ids" not in params
+    # followers への返信は投稿者だけが見える specified に変換される
+    assert params["visibility"] == "specified"
+    assert params["visible_user_ids"] == ["user-1"]
 
 
 def test_reply_kwargs_falls_back_for_blank_text(handler):
