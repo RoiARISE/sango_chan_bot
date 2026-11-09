@@ -416,7 +416,9 @@ class MentionHandler:
             await asyncio.sleep(10)
             await asyncio.to_thread(
                 self._msk.notes_create,
-                text="計測中だよ、いまは話しかけないでね……"
+                text="計測中だよ、いまは話しかけないでね……",
+                reply_id=note["id"],
+                visibility=vis
             )
             speed_result = await speedtest_task
 
