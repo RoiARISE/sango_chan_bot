@@ -35,6 +35,9 @@ except ValueError:
 # --- Bot設定 ---
 ADMIN_ID = os.getenv('ADMIN_ID')
 MAX_NICKNAME_LENGTH = 10
+# 同時に保持できるTodoリマインダー。1人あたりと全体の両方で制限する。
+MAX_ACTIVE_TODOS_PER_USER = 5
+MAX_ACTIVE_TODOS = 100
 
 # --- ファイルパス ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
