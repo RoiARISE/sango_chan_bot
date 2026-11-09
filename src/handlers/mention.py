@@ -397,13 +397,16 @@ class MentionHandler:
     async def _handle_speedtest(self, note: dict) -> None:
         user_id = note["user"]["id"]
         vis = note.get("visibility", "public")
+        # コマンドに CW が付いていれば、結果も同じ警告で隠す
+        cw_kwargs = {"cw": note["cw"]} if note.get("cw") else {}
 
         if user_id != self._admin_id:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="この機能は使える人が限られてるんだ。ゴメンね",
                 reply_id=note["id"],
-                visibility=vis
+                visibility=vis,
+                **cw_kwargs
             )
             return
 
@@ -411,7 +414,8 @@ class MentionHandler:
             self._msk.notes_create,
             text="了解。じゃあ計測してくるね",
             reply_id=note["id"],
-            visibility=vis
+            visibility=vis,
+            **cw_kwargs
         )
         try:
             speedtest_task = asyncio.create_task(
@@ -422,7 +426,8 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="計測中だよ、いまは話しかけないでね……",
                 reply_id=note["id"],
-                visibility=vis
+                visibility=vis,
+                **cw_kwargs
             )
             speed_result = await speedtest_task
 
@@ -434,14 +439,16 @@ class MentionHandler:
                     self._msk.notes_create,
                     text=speed_result,
                     renote_id=note["id"],
-                    visibility=vis
+                    visibility=vis,
+                    **cw_kwargs
                 )
             else:
                 await asyncio.to_thread(
                     self._msk.notes_create,
                     text=speed_result,
                     reply_id=note["id"],
-                    visibility=vis
+                    visibility=vis,
+                    **cw_kwargs
                 )
         except asyncio.TimeoutError:
             logger.error("Speedtest エラー: タイムアウト")
@@ -449,7 +456,8 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="ごめん、計測が1分経っても終わらないみたい……",
                 reply_id=note["id"],
-                visibility=vis
+                visibility=vis,
+                **cw_kwargs
             )
         except Exception:
             logger.error("Speedtest エラー", exc_info=True)
@@ -457,7 +465,8 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="何かがおかしいかも……、もう一度やってみて？",
                 reply_id=note["id"],
-                visibility=vis
+                visibility=vis,
+                **cw_kwargs
             )
 
     async def _handle_todo(self, note: dict) -> None:
