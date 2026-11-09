@@ -617,6 +617,7 @@ class MentionHandler:
                 store=self._store,
                 image_data_urls=image_data_urls,
                 has_sensitive_image=has_sensitive,
+                visibility=vis,
             )
 
             action = result.get("action", "reply")

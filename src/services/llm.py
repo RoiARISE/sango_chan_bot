@@ -8,10 +8,83 @@ logger = logging.getLogger(__name__)
 
 # 記憶を保存する辞書（botが起動している間だけ保持されます）
 user_memories: dict = {}
+# 各メッセージをどの可視性のノートで交わしたか（user_memories と同じ長さ・同じ順序）
+user_memory_visibilities: dict[str, list[str | None]] = {}
 # ユーザーごとの排他ロック
 user_locks: dict[str, asyncio.Lock] = {}
 # 過去何往復分の会話を覚えているか（いまのところ10件＝5往復に制限）
 MAX_HISTORY = 10
+
+# 数字が大きいほど、より広い聴衆に公開されるノートだとみなす
+_VISIBILITY_RANK = {"specified": 0, "followers": 1, "home": 2, "public": 3}
+_DEFAULT_VISIBILITY = "public"
+
+
+def _normalize_visibility(visibility: str | None) -> str:
+    if isinstance(visibility, str):
+        normalized = visibility.lower()
+        if normalized in _VISIBILITY_RANK:
+            return normalized
+    return _DEFAULT_VISIBILITY
+
+
+def _visibility_rank(visibility: str | None) -> int:
+    return _VISIBILITY_RANK[_normalize_visibility(visibility)]
+
+
+def _align_visibilities(user_id: str) -> list[str | None]:
+    """履歴の長さに可視性リストを合わせる（直接履歴を差し替えた場合は None で埋める）"""
+    history = user_memories.setdefault(user_id, [])
+    visibilities = user_memory_visibilities.setdefault(user_id, [])
+    if len(visibilities) < len(history):
+        visibilities.extend([None] * (len(history) - len(visibilities)))
+    elif len(visibilities) > len(history):
+        del visibilities[len(history):]
+    return visibilities
+
+
+def _append_history(user_id: str, message: dict, visibility: str | None) -> None:
+    visibilities = _align_visibilities(user_id)
+    user_memories[user_id].append(message)
+    visibilities.append(_normalize_visibility(visibility))
+
+
+def _pop_history(user_id: str) -> None:
+    visibilities = _align_visibilities(user_id)
+    if user_memories.get(user_id):
+        user_memories[user_id].pop()
+    if visibilities:
+        visibilities.pop()
+
+
+def _clear_history(user_id: str) -> None:
+    user_memories[user_id] = []
+    user_memory_visibilities[user_id] = []
+
+
+def _truncate_history(user_id: str) -> None:
+    visibilities = _align_visibilities(user_id)
+    if len(user_memories[user_id]) > MAX_HISTORY:
+        user_memories[user_id] = user_memories[user_id][-MAX_HISTORY:]
+        user_memory_visibilities[user_id] = visibilities[-MAX_HISTORY:]
+
+
+def _history_for_visibility(user_id: str, visibility: str | None) -> list[dict]:
+    """今回のノートより狭い聴衆にしか見えていなかった発言を除いた履歴を返す
+
+    過去の発言が今回と同じか、それより広い聴衆に公開されていた場合だけ使う。
+    たとえば公開ノートへの返信には公開ノートでの発言だけを渡し、
+    specified の会話は specified の返信でだけ使う。
+    """
+    history = user_memories.get(user_id, [])
+    visibilities = user_memory_visibilities.get(user_id, [])
+    limit = _visibility_rank(visibility)
+    selected = []
+    for index, message in enumerate(history):
+        recorded = visibilities[index] if index < len(visibilities) else None
+        if recorded is None or _visibility_rank(recorded) >= limit:
+            selected.append(message)
+    return selected
 
 
 async def _update_user_profile_in_background(
@@ -57,20 +130,23 @@ async def run_llm(
     store: UserStore | None = None,
     image_data_urls: list[str] | None = None,
     has_sensitive_image: bool = False,
+    visibility: str = "public",
 ) -> dict:
     """
     botから呼び出されるLLM実行関数。
     ユーザーIDと名前を受け取り、会話履歴を管理し、行動アクションを含む辞書を返す。
+
+    ``visibility`` は今回のノートの可視性。履歴のうち、これより狭い聴衆に
+    しか見えていなかった発言は LLM に渡さない。
     """
     global user_memories, user_locks
 
     # 新規メンション（リプライではない）なら、過去の記憶を消去
     if not is_reply:
-        user_memories[user_id] = []
+        _clear_history(user_id)
         logger.debug("[%s] 新規メンションのため記憶をリセットしました", user_name)
 
-    if user_id not in user_memories:
-        user_memories[user_id] = []
+    _align_visibilities(user_id)
 
     lock = user_locks.setdefault(user_id, asyncio.Lock())
 
@@ -86,8 +162,11 @@ async def run_llm(
             if has_sensitive_image:
                 prompt_with_name += " (注: センシティブ指定されている画像です)"
 
+        # 今回のノートと同じか、より広い聴衆に公開されていた履歴だけを使う
+        visible_history = _history_for_visibility(user_id, visibility)
+
         # ターン数（往復回数）の計算
-        history_turns = (len(user_memories[user_id]) // 2) + 1
+        history_turns = (len(visible_history) // 2) + 1
 
         # コスト爆発防止の安全弁（保険: 8往復以上で強制リアクション終了）
         if history_turns > 8:
@@ -98,7 +177,7 @@ async def run_llm(
                         user_id, user_name, list(user_memories[user_id]), "", 0, store
                     )
                 )
-            user_memories[user_id] = []
+            _clear_history(user_id)
             return {
                 "action": "react",
                 "reaction": "💤",
@@ -107,7 +186,12 @@ async def run_llm(
             }
 
         # 履歴にはBase64ではなくテキスト情報のみを保存（トークン肥大化と分析エラーを防ぐ）
-        user_memories[user_id].append({"role": "user", "content": prompt_with_name})
+        _append_history(
+            user_id,
+            {"role": "user", "content": prompt_with_name},
+            visibility,
+        )
+        messages_for_llm = _history_for_visibility(user_id, visibility)
 
         # ユーザープロフィールと親密度をストアから取得
         user_profile = ""
@@ -123,7 +207,7 @@ async def run_llm(
 
         try:
             result = await openrouter.chat_with_history(
-                user_memories[user_id],
+                messages_for_llm,
                 user_profile=user_profile,
                 intimacy=intimacy,
                 image_data_urls=image_data_urls,
@@ -134,10 +218,13 @@ async def run_llm(
             reply_text = result.get("reply", "")
 
             if action == "reply":
-                user_memories[user_id].append({"role": "assistant", "content": reply_text})
+                _append_history(
+                    user_id,
+                    {"role": "assistant", "content": reply_text},
+                    visibility,
+                )
                 # 記憶が上限を超えたら、古いものから忘れる
-                if len(user_memories[user_id]) > MAX_HISTORY:
-                    user_memories[user_id] = user_memories[user_id][-MAX_HISTORY:]
+                _truncate_history(user_id)
             elif action in ("react", "none"):
                 # 会話がフェードアウト（終了）したため、会話全体の履歴をもとにプロフィールを1度だけ更新
                 if store is not None and user_memories[user_id]:
@@ -147,12 +234,12 @@ async def run_llm(
                         )
                     )
                 # 会話終了につきメモリをクリア
-                user_memories[user_id] = []
+                _clear_history(user_id)
 
             return result
         except Exception as e:
-            if user_memories[user_id]:
-                user_memories[user_id].pop()
+            if user_memories.get(user_id):
+                _pop_history(user_id)
             return {
                 "action": "reply",
                 "reaction": "⚠️",
