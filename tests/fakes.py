@@ -1,15 +1,8 @@
-"""Shared fakes and helpers for the note-response regression tests."""
+"""Shared fakes and helpers for the regression tests."""
 
 from __future__ import annotations
 
 import asyncio
-import tempfile
-from pathlib import Path
-
-import _bootstrap  # noqa: F401  (must be imported first)
-
-from src.handlers.mention import MentionHandler
-from src.stores.user_store import UserStore
 
 
 class FakeMisskey:
@@ -73,17 +66,6 @@ class FakeMisskey:
         self.calls.clear()
 
 
-def make_handler(
-    msk: FakeMisskey, admin_id: str = "admin-id"
-) -> tuple[MentionHandler, UserStore, tempfile.TemporaryDirectory]:
-    """Build a MentionHandler backed by a real UserStore in a temp dir."""
-    tmp = tempfile.TemporaryDirectory(prefix="sango-test-")
-    store = UserStore(str(Path(tmp.name) / "user_data.json"), msk, msk.my_id)
-    store.load()
-    handler = MentionHandler(msk, store, admin_id)
-    return handler, store, tmp
-
-
 def note(
     *,
     nid: str = "note-1",
@@ -105,16 +87,6 @@ def note(
     }
     data.update(extra)
     return data
-
-
-def finish_ok(message: str) -> None:
-    print(f"OK: {message}")
-    raise SystemExit(0)
-
-
-def finish_vulnerable(message: str) -> None:
-    print(f"VULNERABLE: {message}")
-    raise SystemExit(1)
 
 
 async def wait_until(predicate, *, timeout: float = 2.0) -> bool:

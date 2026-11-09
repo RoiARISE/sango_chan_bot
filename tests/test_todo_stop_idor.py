@@ -11,18 +11,15 @@ from __future__ import annotations
 import asyncio
 from unittest import mock
 
-import _bootstrap  # noqa: F401
-import _fakes as fakes
+import pytest
 
+import fakes
 import src.handlers.mention as mention
 
 
-async def main() -> None:
+async def test_attacker_cannot_stop_victims_reminder(handler, msk):
     victim_id = "victim-id"
     attacker_id = "attacker-user-id"
-
-    msk = fakes.FakeMisskey()
-    handler, _store, _tmp = fakes.make_handler(msk)
 
     victim_note = fakes.note(
         nid="victim-todo-note",
@@ -30,12 +27,12 @@ async def main() -> None:
         text="@bot todo 牛乳を買う",
     )
 
+    # Capture the reminder note that the handler posts for the victim.
     reminder: dict[str, str] = {}
     original_notes_create = msk.notes_create
 
     def notes_create(**params):
         result = original_notes_create(**params)
-        # Capture the reminder note that the handler posts for the victim.
         if "これやった？" in params.get("text", ""):
             reminder["id"] = result["createdNote"]["id"]
         return result
@@ -48,10 +45,9 @@ async def main() -> None:
 
     async def fake_wait_for(awaitable, timeout=None):
         wait_calls["n"] += 1
-        if wait_calls["n"] == 1:
-            awaitable.close()  # type: ignore[attr-defined]
-            raise asyncio.TimeoutError
         awaitable.close()  # type: ignore[attr-defined]
+        if wait_calls["n"] == 1:
+            raise asyncio.TimeoutError
         return await asyncio.Event().wait()
 
     todo_task = asyncio.create_task(handler._handle_todo(victim_note))
@@ -61,7 +57,7 @@ async def main() -> None:
         if not created:
             todo_task.cancel()
             await asyncio.gather(todo_task, return_exceptions=True)
-            raise SystemExit(f"HARNESS: reminder was not created; calls={msk.calls!r}")
+            pytest.fail(f"reminder was not created; calls={msk.calls!r}")
 
         attacker_note = fakes.note(
             nid="attacker-yatta-note",
@@ -77,13 +73,7 @@ async def main() -> None:
     todo_task.cancel()
     await asyncio.gather(todo_task, return_exceptions=True)
 
-    if stopped:
-        fakes.finish_vulnerable(
-            "attacker (not the Todo owner) cancelled the victim's reminder by "
-            f"replying 'やった' to reminder {reminder['id']}"
-        )
-    fakes.finish_ok("only the Todo owner can stop the reminder")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    assert not stopped, (
+        "attacker (not the Todo owner) cancelled the victim's reminder by "
+        f"replying 'やった' to reminder {reminder['id']}"
+    )
