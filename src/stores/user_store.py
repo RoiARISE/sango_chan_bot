@@ -4,6 +4,8 @@ import os
 
 from misskey import Misskey
 
+from ..utils import sanitize_nickname
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +69,7 @@ class UserStore:
         if record and record.get("nickname"):
             return record["nickname"]
         if user_data and user_data.get("name"):
-            return user_data["name"]
+            return sanitize_nickname(user_data["name"])
         if user_data and user_data.get("username"):
             return user_data["username"]
         if record and record.get("username"):
