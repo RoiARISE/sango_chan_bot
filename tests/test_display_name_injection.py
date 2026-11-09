@@ -9,19 +9,13 @@ the victim, render MFM and publish a link.
 
 from __future__ import annotations
 
-import asyncio
-
-import _bootstrap  # noqa: F401
-import _fakes as fakes
-
+import fakes
 
 INJECTION_MARKERS = ("@victim", "$[", "://", "#tag", "](")
 
 
-async def main() -> None:
+async def test_display_name_is_sanitized_before_being_posted(handler, msk):
     payload = "@victim $[x2 あ] https://evil.example #tag [click](https://evil.example)"
-    msk = fakes.FakeMisskey(relation={"isFollowing": True, "isFollowed": True})
-    handler, _store, _tmp = fakes.make_handler(msk)
 
     malicious_note = fakes.note(
         nid="display-name-note",
@@ -33,19 +27,11 @@ async def main() -> None:
     await handler.handle(malicious_note)
 
     created = msk.created_notes()
-    if not created:
-        raise SystemExit(f"HARNESS: bot did not reply; calls={msk.calls!r}")
+    assert created, f"bot did not reply; calls={msk.calls!r}"
 
     text = created[0].get("text", "")
     leaked = [marker for marker in INJECTION_MARKERS if marker in text]
-
-    if leaked:
-        fakes.finish_vulnerable(
-            "display name was copied verbatim into a bot note "
-            f"(markers={leaked!r}, text={text!r})"
-        )
-    fakes.finish_ok("display names are neutralized before being placed in notes")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    assert not leaked, (
+        "display name was copied verbatim into a bot note "
+        f"(markers={leaked!r}, text={text!r})"
+    )
