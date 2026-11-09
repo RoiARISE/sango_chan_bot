@@ -24,7 +24,13 @@ class FakeMisskey:
             "isFollowed": True,
         }
         self.parent_note = parent_note or {}
+        self.relations: list[dict] = []
+        self.followings: list[dict] = []
         self.calls: list[tuple[str, dict]] = []
+
+    # --- account ---------------------------------------------------------
+    def i(self):
+        return {"id": self.my_id}
 
     # --- notes -----------------------------------------------------------
     def notes_create(self, **params):
@@ -40,6 +46,14 @@ class FakeMisskey:
     def users_show(self, user_id):
         self.calls.append(("users_show", {"user_id": user_id}))
         return dict(self.relation)
+
+    def users_relation(self, user_id):
+        self.calls.append(("users_relation", {"user_id": user_id}))
+        return self.relations
+
+    def users_following(self, **kwargs):
+        self.calls.append(("users_following", dict(kwargs)))
+        return self.followings
 
     def following_create(self, **kwargs):
         self.calls.append(("following_create", dict(kwargs)))
