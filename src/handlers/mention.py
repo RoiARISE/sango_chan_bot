@@ -98,7 +98,7 @@ class MentionHandler:
 
     async def handle(self, note: dict) -> None:
         """メンションを受け取ったときの処理"""
-        text = note.get("text", "")
+        text = note.get("text") or ""
 
         if "フォローして" in text:
             await self._handle_follow_request(note)
@@ -575,7 +575,7 @@ class MentionHandler:
     ) -> None:
         user = note["user"]
         user_id = user["id"]
-        text = note.get("text", "")
+        text = note.get("text") or ""
         vis = note.get("visibility", "public")
         is_reply = note.get("replyId") is not None
 
@@ -596,7 +596,7 @@ class MentionHandler:
 
             # 画像をBase64 Data URL形式にダウンロード＆変換
             image_data_urls = None
-            if image_urls:
+            if image_urls and config.LLM_ENABLE:
                 image_data_urls = await image_utils.fetch_images_as_data_urls(image_urls)
 
             result = await llm.run_llm(
