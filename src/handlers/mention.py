@@ -45,6 +45,8 @@ class MentionHandler:
         self._admin_id = admin_id
         self._cleanup_callback = cleanup_callback
         self._todo_stop_events: dict[str, asyncio.Event] = {}
+        # 同時実行数の確認と登録を競合させない
+        self._todo_lock = asyncio.Lock()
 
     def _get_reply_kwargs(self, note: dict, text: str, **kwargs) -> dict:
         vis = note.get("visibility", "public")
@@ -460,6 +462,20 @@ class MentionHandler:
                 visibility=vis
             )
 
+    def _active_todo_count(self, user_id: str | None = None) -> int:
+        """Count distinct Reminder events, optionally for one owner.
+
+        The same event is registered under the original note id and each
+        reminder note id, so count unique objects rather than dict entries.
+        """
+        events = {id(event): event for event in self._todo_stop_events.values()}
+        if user_id is None:
+            return len(events)
+        return sum(
+            1 for event in events.values()
+            if getattr(event, "owner_id", None) == user_id
+        )
+
     async def _handle_todo(self, note: dict) -> None:
         user_id = note["user"]["id"]
         vis = note.get("visibility", "public")
@@ -469,11 +485,31 @@ class MentionHandler:
         if user_id == self._admin_id:
             text_to_send = "ロイちゃん、これやった？"
 
-        await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note_id, reaction="👍")
+        rejection = None
+        stop_event: asyncio.Event | None = None
+        async with self._todo_lock:
+            if self._active_todo_count() >= config.MAX_ACTIVE_TODOS:
+                rejection = "いまはリマインダーがいっぱいみたい……。少し時間をおいてね"
+            elif self._active_todo_count(user_id) >= config.MAX_ACTIVE_TODOS_PER_USER:
+                rejection = (
+                    f"リマインダーは一度に{config.MAX_ACTIVE_TODOS_PER_USER}件までだよ。"
+                    "終わったものから「やった」って教えてね"
+                )
+            else:
+                stop_event = asyncio.Event()
+                stop_event.owner_id = user_id  # type: ignore[attr-defined]
+                # 反応を待つ前に登録し、同時に来た別のtodoが上限をすり抜けないようにする
+                self._todo_stop_events[note_id] = stop_event
 
-        stop_event = asyncio.Event()
-        stop_event.owner_id = user_id  # type: ignore[attr-defined]
-        self._todo_stop_events[note_id] = stop_event
+        if rejection is not None or stop_event is None:
+            await self._send_reply(note, text=rejection or "いまはリマインダーを登録できないみたい……")
+            return
+
+        try:
+            await asyncio.to_thread(self._msk.notes_reactions_create, note_id=note_id, reaction="👍")
+        except Exception:
+            self._todo_stop_events.pop(note_id, None)
+            raise
 
         try:
             while not stop_event.is_set():
