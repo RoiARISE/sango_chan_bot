@@ -6,7 +6,7 @@ from misskey import Misskey
 
 from .. import responses
 from ..stores.user_store import UserStore
-from ..utils import create_mention_string
+from ..utils import create_mention_string, reply_audience
 
 
 class TimelineHandler:
@@ -23,7 +23,7 @@ class TimelineHandler:
         text = note["text"]
         user = note["user"]
         user_id = user["id"]
-        vis = note.get("visibility", "public")
+        vis, forced_visible_ids = reply_audience(note)
         is_reply = note.get("replyId") is not None
         CHARS_TO_STRIP = " 　\n\t。、？！?!"
 
@@ -114,9 +114,11 @@ class TimelineHandler:
                 after = parts[1].strip()
                 if before or after:
                     name = self._store.get_display_name(user_id, user)
-                    await asyncio.to_thread(
-                        self._msk.notes_create,
-                        text=f"呼んだ？ {name}さん",
-                        reply_id=note["id"],
-                        visibility=vis
-                    )
+                    params = {
+                        "text": f"呼んだ？ {name}さん",
+                        "reply_id": note["id"],
+                        "visibility": vis,
+                    }
+                    if forced_visible_ids is not None:
+                        params["visible_user_ids"] = forced_visible_ids
+                    await asyncio.to_thread(self._msk.notes_create, **params)

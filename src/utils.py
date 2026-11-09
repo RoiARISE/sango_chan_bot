@@ -51,3 +51,18 @@ def create_mention_string(user: dict) -> str:
         return ""
     host = user.get("host")
     return f"@{username}@{host}" if host else f"@{username}"
+
+
+def reply_audience(note: dict) -> tuple[str, list[str] | None]:
+    """返信に使う可視性と、明示的な宛先を返す。
+
+    Misskey の followers / home は「ノートの投稿者のフォロワー」基準。
+    bot が同じ値をそのまま使うと、返信は bot のフォロワーに見えてしまう。
+    元ノートの聴衆を正確に再現できないため、その場合は投稿者だけに
+    宛てる specified に落とす。public / specified はそのまま。
+    """
+    visibility = note.get("visibility", "public")
+    if visibility not in ("followers", "home"):
+        return visibility, None
+    author_id = note.get("userId") or (note.get("user") or {}).get("id")
+    return "specified", [author_id] if author_id else []

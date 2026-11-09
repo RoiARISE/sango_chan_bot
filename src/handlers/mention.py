@@ -47,7 +47,7 @@ class MentionHandler:
         self._todo_stop_events: dict[str, asyncio.Event] = {}
 
     def _get_reply_kwargs(self, note: dict, text: str, **kwargs) -> dict:
-        vis = note.get("visibility", "public")
+        vis, forced_visible_ids = utils.reply_audience(note)
         # 本文が空または空白のみの場合はフォールバック
         clean_text = text if (text and str(text).strip()) else "……？"
 
@@ -70,7 +70,7 @@ class MentionHandler:
         if cw:
             params["cw"] = cw
         if vis == "specified":
-            target_ids = set()
+            target_ids = set(forced_visible_ids or [])
             user_id = note.get("userId") or note.get("user", {}).get("id")
             if user_id:
                 target_ids.add(user_id)
