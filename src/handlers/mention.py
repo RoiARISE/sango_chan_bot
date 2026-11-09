@@ -65,6 +65,10 @@ class MentionHandler:
             "visibility": vis,
             **kwargs,
         }
+        # CW は Misskey 側で返信に引き継がれないため、こちらで複製する
+        cw = note.get("cw")
+        if cw:
+            params["cw"] = cw
         if vis == "specified":
             target_ids = set()
             user_id = note.get("userId") or note.get("user", {}).get("id")
