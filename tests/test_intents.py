@@ -18,10 +18,25 @@ def test_find_intent_returns_none_for_unknown_text():
 
 
 def test_fixed_intents_do_not_depend_on_llm_text():
-    ping = intents.find_intent("@bot ping")
-    assert ping is not None
-    assert ping.fixed is True
-    assert ping.render_fallback("user") == "pong？"
+    cases = {
+        "@bot ping": "pong？",
+        "@bot にゃーん": "にゃ〜ん",
+        "@bot さんごちゃーん": "は〜い",
+        "@bot さんごちゃ〜ん": "は〜い",
+    }
+    for text, expected in cases.items():
+        intent = intents.find_intent(text)
+        assert intent is not None, text
+        assert intent.fixed is True, text
+        assert intent.render_fallback("user") == expected, text
+
+
+def test_nadenade_hint_says_sango_is_the_one_being_petted():
+    intent = intents.find_intent("@bot なでなで")
+    assert intent is not None
+    hint = intent.build_hint()
+    assert "さんご" in hint
+    assert "撫でられ" in hint
 
 
 def test_chikuwa_intent_only_applies_to_replies():

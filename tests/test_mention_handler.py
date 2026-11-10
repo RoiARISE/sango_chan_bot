@@ -591,18 +591,41 @@ async def test_intent_reply_is_sent_when_llm_tries_to_react(handler, msk, monkey
     assert msk.created_notes()[-1]["text"] == "こんにちは、どうしたの？"
 
 
-async def test_intent_sangochaan_is_passed_to_llm(handler, msk, monkeypatch):
+async def test_fixed_intent_sangochaan_does_not_call_llm(handler, msk, monkeypatch):
     monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
-    run_llm = mock.AsyncMock(
-        return_value={"action": "reply", "reaction": "❤️", "reply": "はーい", "reason": "ok"}
-    )
+    run_llm = mock.AsyncMock()
 
     with mock.patch.object(mention.llm, "run_llm", run_llm):
         await handler.handle(fakes.note(text="@bot さんごちゃーん"))
+
+    run_llm.assert_not_awaited()
+    assert msk.created_notes()[-1]["text"] == "は〜い"
+
+
+async def test_fixed_intent_nyaan_does_not_call_llm(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock()
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot にゃーん"))
+
+    run_llm.assert_not_awaited()
+    assert msk.created_notes()[-1]["text"] == "にゃ〜ん"
+
+
+async def test_nadenade_hint_says_sango_is_petted(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "えへへ", "reason": "ok"}
+    )
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot なでなで"))
         assert await fakes.wait_until(lambda: bool(msk.created_notes()))
 
-    assert "呼ばれて" in run_llm.await_args.kwargs["intent_hint"]
-    assert msk.created_notes()[-1]["text"] == "はーい"
+    hint = run_llm.await_args.kwargs["intent_hint"]
+    assert "さんご" in hint
+    assert "撫でられ" in hint
 
 
 async def test_fixed_intent_ping_does_not_call_llm(handler, msk, monkeypatch):
