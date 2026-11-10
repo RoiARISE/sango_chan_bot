@@ -1,6 +1,7 @@
 import random
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
+JST = timezone(timedelta(hours=9))
 SIGNALS = {
     1:  "……まだ寝てないの？ わたしは寝なくてもなんとかなるけど、あなたは違うでしょ…？",
     2:  "こんな時間になっちゃったよ？ さすがに寝ないとダメじゃない……？",
@@ -58,7 +59,7 @@ def get_random_response(category: str) -> str:
 
 def get_current_time_response() -> str:
     """現在時刻の応答メッセージを生成する"""
-    now = datetime.now()
+    now = datetime.now(JST)
     return f'いまは {now.strftime("%H:%M:%S")} だよ。どうしたの……？ 時計を見る元気もない感じかな？'
 
 

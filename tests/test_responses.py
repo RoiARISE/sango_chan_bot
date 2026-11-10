@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -51,3 +52,20 @@ def test_get_random_response_unknown_category_is_empty():
 def test_get_current_time_response_has_hh_mm_ss():
     reply = responses.get_current_time_response()
     assert re.search(r"いまは \d{2}:\d{2}:\d{2} だよ", reply)
+
+
+def test_get_current_time_response_uses_jst(monkeypatch):
+    recorded = {}
+
+    class FakeDatetime:
+        @classmethod
+        def now(cls, tz=None):
+            recorded["tz"] = tz
+            return datetime(2026, 1, 2, 3, 4, 5, tzinfo=tz)
+
+    monkeypatch.setattr(responses, "datetime", FakeDatetime)
+
+    reply = responses.get_current_time_response()
+
+    assert recorded["tz"] == timezone(timedelta(hours=9))
+    assert "03:04:05" in reply
