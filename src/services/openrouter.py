@@ -248,11 +248,6 @@ async def chat_with_history(
         try:
             response = await client.post(
                 url=f"{config.LLM_ENDPOINT}/chat/completions",
-                # --- 元のコード（OpenRouter / 固定APIキー）---
-                # headers={
-                #     "Authorization": f"Bearer {config.LLM_API_KEY}",
-                # },
-                # --- Google Cloud (Agent Platform) / 動的トークン対応 ---
                 headers=_get_auth_headers(),
                 json={
                     "model": config.LLM_MODEL,
@@ -394,11 +389,6 @@ async def analyze_user_interaction(
         try:
             response = await client.post(
                 url=f"{config.LLM_ENDPOINT}/chat/completions",
-                # --- 元のコード（OpenRouter / 固定APIキー）---
-                # headers={
-                #     "Authorization": f"Bearer {config.LLM_API_KEY}",
-                # },
-                # --- Google Cloud (Agent Platform) / 動的トークン対応 ---
                 headers=_get_auth_headers(),
                 json={
                     "model": config.LLM_MODEL,
