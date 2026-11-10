@@ -28,3 +28,16 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest -q
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare env file
+        run: cp env_example.env .env
+      - name: Validate compose config
+        run: docker compose config -q
+      - name: Build image
+        run: docker compose build
+      - name: Smoke test container
+        run: docker compose run --rm --no-deps bot python -c "import src.bot; from src import config; assert config.INSTANCE_URL; print('smoke ok')"
