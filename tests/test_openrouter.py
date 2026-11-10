@@ -105,6 +105,32 @@ async def test_chat_sends_system_prompt_history_and_auth_header(monkeypatch):
     assert request["json"]["messages"][-1] == {"role": "user", "content": "こんにちは"}
 
 
+@pytest.mark.parametrize(
+    ("intimacy", "expected"),
+    [
+        (25, "やや親しい"),
+        (-25, "やや苦手"),
+        (0, "親密度: 0"),
+    ],
+)
+def test_intimacy_instruction_changes_with_the_value(intimacy, expected):
+    assert expected in openrouter._get_intimacy_instruction(intimacy)
+
+
+async def test_chat_puts_the_intimacy_instruction_into_the_prompt(monkeypatch):
+    monkeypatch.setattr(openrouter.config, "LLM_ENABLE", True)
+    response = FakeResponse(body=choice('{"action":"reply","reply":"やあ"}'))
+
+    with install_client(response=response):
+        await openrouter.chat_with_history(
+            [{"role": "user", "content": "こんにちは"}], intimacy=30
+        )
+
+    system = FakeClient.instances[0].request["json"]["messages"][0]["content"]
+    assert "# この相手への態度" in system
+    assert "やや親しい" in system
+
+
 async def test_chat_injects_intent_hint_and_requires_a_reply(monkeypatch):
     monkeypatch.setattr(openrouter.config, "LLM_ENABLE", True)
     response = FakeResponse(body=choice('{"action":"reply","reply":"やあ"}'))

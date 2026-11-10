@@ -220,10 +220,10 @@ async def chat_with_history(
     time_str = now.strftime(f"%Y/%m/%d ({weekday}) %H:%M:%S")
 
     system_content = f"{SYSTEM_PROMPT}\n\n# 現在の日時\n- {time_str}"
+    system_content += "\n\n# あなたが把握している対話相手の情報"
     if user_profile:
-        system_content += f"\n\n# あなたが把握している対話相手の情報\n- 特徴: {user_profile}\n- あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
-    else:
-        system_content += f"\n\n# あなたが把握している対話相手の情報\n- あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
+        system_content += f"\n- 特徴: {user_profile}"
+    system_content += f"\n\n# この相手への態度\n{_get_intimacy_instruction(intimacy)}"
 
     if convo_context:
         system_content += f"\n\n# 会話スレッドの進行状況\n- {convo_context}"
