@@ -1,0 +1,4 @@
+https://misskey.test {
+	tls internal
+	reverse_proxy web:3000
+}
