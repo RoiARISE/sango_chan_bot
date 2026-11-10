@@ -5,7 +5,9 @@ def extract_nickname(text):
     text = re.sub(r"@\S+", "", text)
     match = re.search(r"(.+?)(?:と呼んで|って呼んで)", text)
     if match:
-        nickname = match.group(1).strip("、。 \n")
+        # 空白を先に落としてから句読点を落とす。
+        # 逆順だと「さんご、 って呼んで」の句読点が空白に邪魔されて残る。
+        nickname = match.group(1).strip().strip("、。").strip()
         if not nickname:
             return None
         return nickname
