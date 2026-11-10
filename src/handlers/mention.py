@@ -711,11 +711,8 @@ class MentionHandler:
         is_reply = note.get("replyId") is not None
 
         for keywords, response, reply_rule in self._build_command_list(user_id, user, vis):
-            if reply_rule is not None:
-                if reply_rule is True and not is_reply:
-                    continue
-                if reply_rule is False and is_reply:
-                    continue
+            if reply_rule is True and not is_reply:
+                continue
             if any(kw in text for kw in keywords):
                 if callable(response):
                     response = response()
