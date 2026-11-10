@@ -18,40 +18,13 @@ SIGNALS = {
 }
 
 
-GO_WORK = [
-    "お仕事、頑張ってきてね。わたし、あなたが帰ってくるの、待ってるから……",
-    "お仕事は大事だけど、あんまり無理はしないでね？",
-    "お仕事とわたし、どっちが大事なんだろう……。まぁ、わたしにはロイちゃんがいるから、いい……のかな？\n……あっ、ち、違う！ これは違くて…！ なんでもないから……！",
-]
-
-GOOD_NIGHT = [
-    "また朝に会おうね、おやすみ",
-    "おやすみって言ったんだから、夜更かししようなんて考えないでね？",
-    "寝ちゃうんだ……。ふーん……",
-]
-
-MORNING = [
-    "よく眠れたよ～。元気いーっぱい",
-    "あんまり寝れなかったかな……。まぁ、なんとかなるでしょ～",
-]
-
-MENTION_SLEEPY = ["よしよし……", "……なでなで、してあげるね"]
 TO_YOU_ABUSE = ["変なお願いをするもんだね……", "えっと……、ど、どんな風に罵ってほしいとか、ある？"]
-TWO_TIME_SLEEP = [
-    "二度寝をするのは悪いことじゃないけど、ほどほどにしておいてね？",
-    "30分後にアラームを設定。……よし、準備おっけー。じゃあ、わたしも二度寝しちゃおうかな……",
-]
 
 
 def get_random_response(category: str) -> str:
     """指定されたカテゴリの応答リストからランダムに1つ返す"""
     responses_map = {
-        "go_work": GO_WORK,
-        "good_night": GOOD_NIGHT,
-        "morning": MORNING,
-        "mention_sleepy": MENTION_SLEEPY,
         "to_you_abuse": TO_YOU_ABUSE,
-        "two_time_sleep": TWO_TIME_SLEEP,
     }
     return random.choice(responses_map.get(category, [""]))
 
