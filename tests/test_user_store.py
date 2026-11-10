@@ -138,12 +138,10 @@ def test_profile_get_and_set(make_store):
     assert store.get("user-1")["username"] == "user_1"
 
 
-def test_set_intimacy_clamps_to_range(make_store):
+def test_change_intimacy_clamps_to_range(make_store):
     store = make_store()
-    store.set_intimacy("user-1", 500)
-    assert store.get_intimacy("user-1") == 100
-    store.set_intimacy("user-1", -500)
-    assert store.get_intimacy("user-1") == -100
+    assert store.change_intimacy("user-1", 500) == (100, True)
+    assert store.change_intimacy("user-1", -500) == (-100, True)
 
 
 def test_change_intimacy_zero_is_noop(make_store):
@@ -169,7 +167,7 @@ def test_change_intimacy_increase_once_per_day(make_store):
 
 def test_change_intimacy_increases_again_on_the_next_day(make_store):
     store = make_store()
-    store.set_intimacy("user-1", 1)
+    store.change_intimacy("user-1", 1)
     yesterday = (datetime.now(JST) - timedelta(days=1)).strftime("%Y-%m-%d")
     store._data["user-1"]["last_intimacy_increment_date"] = yesterday
 
@@ -178,7 +176,7 @@ def test_change_intimacy_increases_again_on_the_next_day(make_store):
 
 def test_change_intimacy_is_clamped(make_store):
     store = make_store()
-    store.set_intimacy("user-1", 100)
+    store.change_intimacy("user-1", 100)
     yesterday = (datetime.now(JST) - timedelta(days=1)).strftime("%Y-%m-%d")
     store._data["user-1"]["last_intimacy_increment_date"] = yesterday
     assert store.change_intimacy("user-1", 50) == (100, True)
