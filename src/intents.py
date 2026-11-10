@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Callable
 
@@ -20,6 +21,8 @@ class Intent:
     fallback: str | Callable[[str], str]
     fixed: bool = False
     reply_only: bool = False
+    word_boundary: bool = False
+    command_only: bool = False
 
     def build_hint(self) -> str:
         """LLM に渡す意図の説明を組み立てる"""
@@ -92,6 +95,7 @@ INTENTS: tuple[Intent, ...] = (
         "疎通確認をされている。短く返す",
         "pong？",
         fixed=True,
+        word_boundary=True,
     ),
     Intent(
         ("ちくわ大明神",),
@@ -99,13 +103,24 @@ INTENTS: tuple[Intent, ...] = (
         "…なに？",
         fixed=True,
         reply_only=True,
+        command_only=True,
     ),
 )
 
 
 def find_intent(text: str) -> Intent | None:
     """本文に含まれる最初の意図を返す。該当がなければ None"""
+    cleaned = re.sub(r'\+LLM|@\w+(?:@[\w.]+)?', '', text).strip()
     for intent in INTENTS:
-        if any(keyword in text for keyword in intent.keywords):
-            return intent
+        for keyword in intent.keywords:
+            if intent.command_only:
+                if re.fullmatch(
+                    rf"{re.escape(keyword)}[\s？?！!。、]*", cleaned, re.IGNORECASE
+                ):
+                    return intent
+            elif intent.word_boundary:
+                if re.search(rf"\b{re.escape(keyword)}\b", text, re.IGNORECASE):
+                    return intent
+            elif keyword in text:
+                return intent
     return None

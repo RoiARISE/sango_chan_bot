@@ -639,12 +639,51 @@ async def test_fixed_intent_ping_does_not_call_llm(handler, msk, monkeypatch):
     assert msk.created_notes()[-1]["text"] == "pong？"
 
 
+async def test_fixed_intent_ping_accepts_trailing_punctuation(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock()
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot ping!!!"))
+
+    run_llm.assert_not_awaited()
+    assert msk.created_notes()[-1]["text"] == "pong？"
+
+
+async def test_ping_inside_english_word_goes_to_llm(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "LLMの返信", "reason": "ok"}
+    )
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot wrapping"))
+        assert await fakes.wait_until(lambda: bool(msk.created_notes()))
+
+    run_llm.assert_awaited_once()
+    assert msk.created_notes()[-1]["text"] == "LLMの返信"
+
+
 async def test_reply_only_intent_is_ignored_without_a_reply(handler, msk):
     await handler.handle(fakes.note(text="@bot ちくわ大明神"))
     assert not msk.created_notes()
 
     await handler.handle(fakes.note(text="@bot ちくわ大明神", replyId="parent"))
     assert msk.created_notes()[-1]["text"] == "…なに？"
+
+
+async def test_chikuwa_question_goes_to_llm(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "LLMの返信", "reason": "ok"}
+    )
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot ちくわ大明神って何？"))
+        assert await fakes.wait_until(lambda: bool(msk.created_notes()))
+
+    run_llm.assert_awaited_once()
+    assert msk.created_notes()[-1]["text"] == "LLMの返信"
 
 
 async def test_time_intent_injects_the_current_time(handler, msk, monkeypatch):
