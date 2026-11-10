@@ -530,20 +530,12 @@ class MentionHandler:
 
                 logger.debug("Todoリマインダー実行 (vis: %s): %s", vis, note_id)
                 try:
-                    if vis == "followers":
-                        result = await asyncio.to_thread(
-                            self._msk.notes_create,
-                            text=text_to_send,
-                            reply_id=note_id,
-                            visibility=vis
-                        )
-                    else:
-                        result = await asyncio.to_thread(
-                            self._msk.notes_create,
-                            text=text_to_send,
-                            reply_id=note_id,
-                            visibility=vis
-                        )
+                    result = await asyncio.to_thread(
+                        self._msk.notes_create,
+                        text=text_to_send,
+                        reply_id=note_id,
+                        visibility=vis
+                    )
 
                     # リマインダーのノートIDを追跡（「やった」返信の検知用）
                     if isinstance(result, dict):
