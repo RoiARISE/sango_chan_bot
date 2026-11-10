@@ -1,0 +1,96 @@
+name: docker-misskey
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-misskey-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  misskey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_FILE: .github/misskey/compose.yml
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start database and Redis
+        run: docker compose up -d --wait db redis
+
+      - name: Initialize Misskey database
+        run: docker compose run --rm web pnpm run init
+
+      - name: Start Misskey and TLS proxy
+        run: docker compose up -d --wait web caddy
+
+      - name: Extract Caddy CA certificate
+        run: |
+          docker compose exec -T caddy cat /data/caddy/pki/authorities/local/root.crt \
+            > "${RUNNER_TEMP}/misskey-root.crt"
+
+      - name: Create admin account
+        run: |
+          set -euo pipefail
+          response=""
+          for _ in $(seq 1 60); do
+            if response=$(curl -fsS \
+              --cacert "${RUNNER_TEMP}/misskey-root.crt" \
+              --resolve misskey.test:8443:127.0.0.1 \
+              -H 'Content-Type: application/json' \
+              -d '{"username":"admin","password":"ci-password-12345"}' \
+              https://misskey.test:8443/api/admin/accounts/create); then
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "${response}" ]; then
+            echo "Failed to create the initial admin account" >&2
+            exit 1
+          fi
+          token=$(printf '%s' "${response}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+          admin_id=$(printf '%s' "${response}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          {
+            echo "MISSKEY_TOKEN=${token}"
+            echo "MISSKEY_ADMIN_ID=${admin_id}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Allow bot user to read CA certificate
+        run: docker compose exec -T caddy chmod -R a+rX /data/caddy
+
+      - name: Start bot container
+        run: TOKEN="${MISSKEY_TOKEN}" ADMIN_ID="${MISSKEY_ADMIN_ID}" docker compose up -d --build bot
+
+      - name: Wait for bot to connect to Misskey
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            if docker compose logs --no-color bot | grep -q "WebSocketに接続しました"; then
+              echo "bot connected to Misskey"
+              exit 0
+            fi
+            running=$(docker compose ps -q bot | xargs -r docker inspect -f '{{.State.Running}}')
+            if [ "${running}" != "true" ]; then
+              echo "bot container stopped" >&2
+              docker compose logs --no-color bot
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for bot to connect" >&2
+          docker compose logs --no-color bot
+          exit 1
+
+      - name: Show logs
+        if: always()
+        run: docker compose logs --no-color || true
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down -v --remove-orphans || true

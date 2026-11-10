@@ -1,0 +1,77 @@
+name: sango-chan-bot-misskey-test
+
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: misskey
+      POSTGRES_USER: misskey
+      POSTGRES_PASSWORD: misskey
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U misskey -d misskey"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  web:
+    image: misskey/misskey:2026.10.1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./config:/misskey/.config:ro
+      - files:/misskey/files
+    healthcheck:
+      test: ["CMD", "/bin/bash", "/misskey/healthcheck.sh"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 30s
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      web:
+        condition: service_started
+    ports:
+      - "8443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks:
+      default:
+        aliases:
+          - misskey.test
+
+  bot:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      web:
+        condition: service_healthy
+      caddy:
+        condition: service_started
+    environment:
+      TOKEN: ${TOKEN:-}
+      ADMIN_ID: ${ADMIN_ID:-}
+      INSTANCE: misskey.test
+      LLM_ENABLE: ""
+      REQUESTS_CA_BUNDLE: /caddy-data/caddy/pki/authorities/local/root.crt
+      SSL_CERT_FILE: /caddy-data/caddy/pki/authorities/local/root.crt
+    volumes:
+      - caddy-data:/caddy-data:ro
+
+volumes:
+  caddy-data:
+  files:
