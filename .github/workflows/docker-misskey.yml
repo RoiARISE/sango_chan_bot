@@ -62,7 +62,7 @@ jobs:
           } >> "${GITHUB_ENV}"
 
       - name: Allow bot user to read CA certificate
-        run: docker compose exec -T caddy chmod -R a+rX /data/caddy/pki/authorities/local
+        run: docker compose exec -T caddy chmod -R a+rX /data/caddy
 
       - name: Start bot container
         run: TOKEN="${MISSKEY_TOKEN}" ADMIN_ID="${MISSKEY_ADMIN_ID}" docker compose up -d --build bot
