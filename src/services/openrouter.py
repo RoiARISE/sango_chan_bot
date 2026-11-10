@@ -200,6 +200,7 @@ async def chat_with_history(
     intimacy: int = 0,
     image_data_urls: list[str] | None = None,
     convo_context: str = "",
+    intent_hint: str = "",
 ) -> dict:
     if not config.LLM_ENABLE:
         # LLM機能無効時の発言
@@ -226,6 +227,14 @@ async def chat_with_history(
 
     if convo_context:
         system_content += f"\n\n# 会話スレッドの進行状況\n- {convo_context}"
+
+    if intent_hint:
+        system_content += (
+            "\n\n# 今回のメッセージの意図\n"
+            f"- {intent_hint}\n"
+            '- この意図が示されているため、必ず action は "reply" にしてください。'
+            "react や none は選ばないでください。"
+        )
 
     # 履歴をコピー（画像変換が元の履歴オブジェクトに影響しないようにする）
     messages = [{"role": "system", "content": system_content}] + [dict(m) for m in messages_history]

@@ -105,6 +105,22 @@ async def test_chat_sends_system_prompt_history_and_auth_header(monkeypatch):
     assert request["json"]["messages"][-1] == {"role": "user", "content": "こんにちは"}
 
 
+async def test_chat_injects_intent_hint_and_requires_a_reply(monkeypatch):
+    monkeypatch.setattr(openrouter.config, "LLM_ENABLE", True)
+    response = FakeResponse(body=choice('{"action":"reply","reply":"やあ"}'))
+
+    with install_client(response=response):
+        await openrouter.chat_with_history(
+            [{"role": "user", "content": "こんにちは"}],
+            intent_hint="挨拶をされた",
+        )
+
+    system = FakeClient.instances[0].request["json"]["messages"][0]["content"]
+    assert "# 今回のメッセージの意図" in system
+    assert "挨拶をされた" in system
+    assert "必ず action は \"reply\"" in system
+
+
 async def test_chat_turns_the_last_user_message_into_multimodal(monkeypatch):
     monkeypatch.setattr(openrouter.config, "LLM_ENABLE", True)
     response = FakeResponse(body=choice('{"action":"reply","reply":"かわいい"}'))

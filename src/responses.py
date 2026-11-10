@@ -29,10 +29,14 @@ def get_random_response(category: str) -> str:
     return random.choice(responses_map.get(category, [""]))
 
 
+def get_current_time_text() -> str:
+    """現在時刻を HH:MM:SS 形式で返す"""
+    return datetime.now().strftime("%H:%M:%S")
+
+
 def get_current_time_response() -> str:
     """現在時刻の応答メッセージを生成する"""
-    now = datetime.now()
-    return f'いまは {now.strftime("%H:%M:%S")} だよ。どうしたの……？ 時計を見る元気もない感じかな？'
+    return f'いまは {get_current_time_text()} だよ。どうしたの……？ 時計を見る元気もない感じかな？'
 
 
 def roll_dice(count_str: str, sides_str: str) -> list[int] | None:
