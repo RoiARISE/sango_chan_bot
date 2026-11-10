@@ -18,7 +18,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN addgroup -g 1000 app \
+# タイムゾーンは .env の TZ で渡す。alpine の musl は /usr/share/zoneinfo を見るため、
+# タイムゾーンデータが無いと TZ を設定しても UTC のままになる
+RUN apk add --no-cache tzdata \
+    && addgroup -g 1000 app \
     && adduser -D -u 1000 -G app app \
     && mkdir -p /app/data \
     && chown -R app:app /app
