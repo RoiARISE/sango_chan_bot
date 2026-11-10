@@ -614,7 +614,6 @@ class MentionHandler:
         user = note["user"]
         user_id = user["id"]
         text = note.get("text") or ""
-        vis = note.get("visibility", "public")
         is_reply = note.get("replyId") is not None
 
         async def process():
@@ -688,7 +687,7 @@ class MentionHandler:
         )
 
     def _build_command_list(
-        self, user_id: str, user: dict, vis: str
+        self, user_id: str, user: dict
     ) -> list[tuple[tuple[str, ...], str | Callable[[], str], bool | None]]:
         return [
             (("はじめまして",), "はじめまして、わたしを見つけてくれてありがとう。これからよろしくね", None),
@@ -707,10 +706,9 @@ class MentionHandler:
         user = note["user"]
         user_id = user["id"]
         text = note.get("text", "")
-        vis = note.get("visibility", "public")
         is_reply = note.get("replyId") is not None
 
-        for keywords, response, reply_rule in self._build_command_list(user_id, user, vis):
+        for keywords, response, reply_rule in self._build_command_list(user_id, user):
             if reply_rule is True and not is_reply:
                 continue
             if any(kw in text for kw in keywords):
@@ -722,7 +720,6 @@ class MentionHandler:
 
     async def _handle_dice(self, note: dict) -> None:
         text = note.get("text", "")
-        vis = note.get("visibility", "public")
         match = re.search(r"(\d+)d(\d+)", text.lower())
         if not match:
             return
