@@ -117,9 +117,7 @@ class MyBot:
             today_12 = now.replace(hour=12, minute=0, second=0, microsecond=0)
             tomorrow_00 = today_00 + timedelta(days=1)
 
-            if now < today_00:
-                next_run = today_00
-            elif now < today_12:
+            if now < today_12:
                 next_run = today_12
             else:
                 next_run = tomorrow_00
