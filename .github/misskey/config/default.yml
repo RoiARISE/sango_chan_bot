@@ -2,6 +2,8 @@ url: https://misskey.test/
 
 port: 3000
 
+id: 'aidx'
+
 db:
   host: db
   port: 5432
