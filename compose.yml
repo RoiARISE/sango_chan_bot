@@ -5,5 +5,8 @@ services:
     init: true
     env_file:
       - .env
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials.json
     volumes:
       - ./data:/app/data
+      - ~/.config/gcloud/application_default_credentials.json:/app/credentials.json:ro
