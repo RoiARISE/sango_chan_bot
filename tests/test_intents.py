@@ -74,3 +74,25 @@ def test_time_intent_hint_contains_the_current_time():
     intent = intents.find_intent("@bot 今何時")
     assert intent is not None
     assert re.search(r"\d{2}:\d{2}:\d{2}", intent.build_hint())
+
+
+def test_help_intent_matches_various_phrases():
+    phrases = (
+        "@bot 何ができるの？",
+        "@bot なにができる？",
+        "@bot できること教えて",
+        "@bot 機能教えて",
+        "@bot 機能一覧",
+        "@bot ヘルプ",
+    )
+    for phrase in phrases:
+        intent = intents.find_intent(phrase)
+        assert intent is not None, phrase
+        assert intent.fixed is False, phrase
+        hint = intent.build_hint()
+        assert "機能" in hint
+        fallback = intent.render_fallback("user")
+        assert "ダイスロール" in fallback
+        assert "あだ名" in fallback
+        assert "回線速度" in fallback
+
