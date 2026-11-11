@@ -208,6 +208,7 @@ __marimo__/
 
 # === your project-specific ignore =====
 data/
+data_backup/
 .env
 *.db
 *.sqlite
