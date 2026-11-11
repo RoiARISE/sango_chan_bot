@@ -143,14 +143,11 @@ async def test_safe_run_swallows_and_logs_errors(caplog):
 
 
 async def test_timesignal_posts_known_hour(bot, msk, monkeypatch):
-    class FakeDateTime:
-        @classmethod
-        def now(cls, tz):
-            return real_datetime(2026, 1, 1, 12, 30, tzinfo=timezone(timedelta(hours=9)))
+    fixed = real_datetime(2026, 1, 1, 12, 30, tzinfo=timezone(timedelta(hours=9)))
 
     sleeps = mock.AsyncMock(side_effect=[None, asyncio.CancelledError])
 
-    monkeypatch.setattr(bot_module, "datetime", FakeDateTime)
+    monkeypatch.setattr(bot_module.clock, "now", lambda: fixed)
     with mock.patch.object(bot_module.asyncio, "sleep", sleeps):
         with pytest.raises(asyncio.CancelledError):
             await bot.timesignal_task()
@@ -159,14 +156,11 @@ async def test_timesignal_posts_known_hour(bot, msk, monkeypatch):
 
 
 async def test_timesignal_skips_unknown_hour(bot, msk, monkeypatch):
-    class FakeDateTime:
-        @classmethod
-        def now(cls, tz):
-            return real_datetime(2026, 1, 1, 9, 30, tzinfo=timezone(timedelta(hours=9)))
+    fixed = real_datetime(2026, 1, 1, 9, 30, tzinfo=timezone(timedelta(hours=9)))
 
     sleeps = mock.AsyncMock(side_effect=[None, asyncio.CancelledError])
 
-    monkeypatch.setattr(bot_module, "datetime", FakeDateTime)
+    monkeypatch.setattr(bot_module.clock, "now", lambda: fixed)
     with mock.patch.object(bot_module.asyncio, "sleep", sleeps):
         with pytest.raises(asyncio.CancelledError):
             await bot.timesignal_task()

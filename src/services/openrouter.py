@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from .. import config
+from .. import clock, config
 
 logger = logging.getLogger(__name__)
 
@@ -212,9 +212,7 @@ async def chat_with_history(
         }
 
     # システムプロンプトの直後に、過去の会話履歴を繋げる
-    from datetime import datetime, timezone, timedelta
-    jst = timezone(timedelta(hours=9))
-    now = datetime.now(jst)
+    now = clock.now()
     weekdays = ["月", "火", "水", "木", "金", "土", "日"]
     weekday = weekdays[now.weekday()]
     time_str = now.strftime(f"%Y/%m/%d ({weekday}) %H:%M:%S")

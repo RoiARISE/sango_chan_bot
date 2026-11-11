@@ -4,6 +4,7 @@ import os
 
 from misskey import Misskey
 
+from .. import clock
 from ..utils import sanitize_nickname
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,7 @@ class UserStore:
 
     def change_intimacy(self, user_id: str, change: int, username: str = "") -> tuple[int, bool]:
         """親密度を増減させ、変更後の値と、上昇が実際に適用されたかどうかを返します。
-        上昇は1日1回（JST基準）のみに制限されます。下降は無制限です。
+        上昇は1日1回（実行環境のタイムゾーン基準）のみに制限されます。下降は無制限です。
         """
         if user_id not in self._data:
             self._data[user_id] = {
@@ -117,9 +118,7 @@ class UserStore:
         current_val = record.get("intimacy", 0)
 
         if change > 0:
-            from datetime import datetime, timedelta, timezone
-            JST = timezone(timedelta(hours=9))
-            today_str = datetime.now(JST).strftime("%Y-%m-%d")
+            today_str = clock.today()
 
             last_date = record.get("last_intimacy_increment_date", "")
             if last_date == today_str:
