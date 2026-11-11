@@ -200,6 +200,7 @@ async def chat_with_history(
     intimacy: int = 0,
     image_data_urls: list[str] | None = None,
     convo_context: str = "",
+    intent_hint: str = "",
 ) -> dict:
     if not config.LLM_ENABLE:
         # LLM機能無効時の発言
@@ -219,13 +220,21 @@ async def chat_with_history(
     time_str = now.strftime(f"%Y/%m/%d ({weekday}) %H:%M:%S")
 
     system_content = f"{SYSTEM_PROMPT}\n\n# 現在の日時\n- {time_str}"
+    system_content += "\n\n# あなたが把握している対話相手の情報"
     if user_profile:
-        system_content += f"\n\n# あなたが把握している対話相手の情報\n- 特徴: {user_profile}\n- あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
-    else:
-        system_content += f"\n\n# あなたが把握している対話相手の情報\n- あなたに対する親密度: {intimacy} (範囲: -100 〜 100)"
+        system_content += f"\n- 特徴: {user_profile}"
+    system_content += f"\n\n# この相手への態度\n{_get_intimacy_instruction(intimacy)}"
 
     if convo_context:
         system_content += f"\n\n# 会話スレッドの進行状況\n- {convo_context}"
+
+    if intent_hint:
+        system_content += (
+            "\n\n# 今回のメッセージの意図\n"
+            f"- {intent_hint}\n"
+            '- この意図が示されているため、必ず action は "reply" にしてください。'
+            "react や none は選ばないでください。"
+        )
 
     # 履歴をコピー（画像変換が元の履歴オブジェクトに影響しないようにする）
     messages = [{"role": "system", "content": system_content}] + [dict(m) for m in messages_history]
@@ -248,11 +257,6 @@ async def chat_with_history(
         try:
             response = await client.post(
                 url=f"{config.LLM_ENDPOINT}/chat/completions",
-                # --- 元のコード（OpenRouter / 固定APIキー）---
-                # headers={
-                #     "Authorization": f"Bearer {config.LLM_API_KEY}",
-                # },
-                # --- Google Cloud (Agent Platform) / 動的トークン対応 ---
                 headers=_get_auth_headers(),
                 json={
                     "model": config.LLM_MODEL,
@@ -394,11 +398,6 @@ async def analyze_user_interaction(
         try:
             response = await client.post(
                 url=f"{config.LLM_ENDPOINT}/chat/completions",
-                # --- 元のコード（OpenRouter / 固定APIキー）---
-                # headers={
-                #     "Authorization": f"Bearer {config.LLM_API_KEY}",
-                # },
-                # --- Google Cloud (Agent Platform) / 動的トークン対応 ---
                 headers=_get_auth_headers(),
                 json={
                     "model": config.LLM_MODEL,

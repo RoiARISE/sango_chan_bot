@@ -57,6 +57,7 @@ async def run_llm(
     store: UserStore | None = None,
     image_data_urls: list[str] | None = None,
     has_sensitive_image: bool = False,
+    intent_hint: str = "",
 ) -> dict:
     """
     botから呼び出されるLLM実行関数。
@@ -128,6 +129,7 @@ async def run_llm(
                 intimacy=intimacy,
                 image_data_urls=image_data_urls,
                 convo_context=convo_context,
+                intent_hint=intent_hint,
             )
 
             action = result.get("action", "reply")

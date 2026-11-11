@@ -6,7 +6,7 @@ from typing import Awaitable, Callable, cast
 
 from misskey import Misskey
 
-from .. import config, responses, utils
+from .. import config, intents, responses, utils
 from ..services import image_utils, llm, speedtest
 from ..stores.user_store import UserStore
 from ..utils import create_mention_string
@@ -144,6 +144,7 @@ class MentionHandler:
 
         direct_images, direct_sensitive = self._extract_images_from_note(note)
         cleaned_text = re.sub(r'\+LLM|@\w+(?:@[\w.]+)?', '', text).strip()
+        intent = intents.find_intent(text)
 
         if "って呼んで" in text or "と呼んで" in text:
             await self._handle_nickname_set(note)
@@ -163,15 +164,12 @@ class MentionHandler:
             )
         elif re.search(r"(\d+)d(\d+)", text.lower()):
             await self._handle_dice(note)
+        elif intent is not None:
+            await self._handle_intent(note, intent, direct_images, direct_sensitive)
         elif cleaned_text or direct_images:
             await self._handle_llm(note, direct_images=direct_images, direct_sensitive=direct_sensitive)
-        elif "さんごちゃーん" in text or "さんごちゃ〜ん" in text:
-            await asyncio.sleep(1)
-            await self._send_reply(note, text="は〜い")
         else:
-            handled = await self._dispatch_command_list(note)
-            if not handled:
-                await self._handle_dice(note)
+            await self._handle_dice(note)
 
     async def _handle_follow_request(self, note: dict) -> None:
         user = note["user"]
@@ -530,20 +528,12 @@ class MentionHandler:
 
                 logger.debug("Todoリマインダー実行 (vis: %s): %s", vis, note_id)
                 try:
-                    if vis == "followers":
-                        result = await asyncio.to_thread(
-                            self._msk.notes_create,
-                            text=text_to_send,
-                            reply_id=note_id,
-                            visibility=vis
-                        )
-                    else:
-                        result = await asyncio.to_thread(
-                            self._msk.notes_create,
-                            text=text_to_send,
-                            reply_id=note_id,
-                            visibility=vis
-                        )
+                    result = await asyncio.to_thread(
+                        self._msk.notes_create,
+                        text=text_to_send,
+                        reply_id=note_id,
+                        visibility=vis
+                    )
 
                     # リマインダーのノートIDを追跡（「やった」返信の検知用）
                     if isinstance(result, dict):
@@ -613,16 +603,46 @@ class MentionHandler:
 
         return False
 
+    async def _handle_intent(
+        self,
+        note: dict,
+        intent: intents.Intent,
+        direct_images: list[str],
+        direct_sensitive: bool,
+    ) -> None:
+        """意図つきのメンションを、定型文または LLM で処理する"""
+        user = note["user"]
+        display_name = self._store.get_display_name(user["id"], user)
+
+        if intent.fixed:
+            if intent.reply_only and note.get("replyId") is None:
+                return
+            await self._send_reply(note, text=intent.render_fallback(display_name))
+            return
+
+        if not config.LLM_ENABLE:
+            await self._send_reply(note, text=intent.render_fallback(display_name))
+            return
+
+        await self._handle_llm(
+            note,
+            direct_images=direct_images,
+            direct_sensitive=direct_sensitive,
+            intent_hint=intent.build_hint(),
+            fallback_text=intent.render_fallback(display_name),
+        )
+
     async def _handle_llm(
         self,
         note: dict,
         direct_images: list[str] | None = None,
         direct_sensitive: bool = False,
+        intent_hint: str | None = None,
+        fallback_text: str | None = None,
     ) -> None:
         user = note["user"]
         user_id = user["id"]
         text = note.get("text") or ""
-        vis = note.get("visibility", "public")
         is_reply = note.get("replyId") is not None
 
         async def process():
@@ -653,6 +673,7 @@ class MentionHandler:
                 store=self._store,
                 image_data_urls=image_data_urls,
                 has_sensitive_image=has_sensitive,
+                intent_hint=intent_hint or "",
             )
 
             action = result.get("action", "reply")
@@ -665,6 +686,15 @@ class MentionHandler:
                 await asyncio.to_thread(self._msk.notes_reactions_delete, note_id=note["id"])
             except Exception:
                 pass
+
+            if fallback_text is not None and action != "reply":
+                # 意図ヒント付きのメッセージには必ず返信させる
+                logger.info(
+                    "[%s] 意図ヒント付きのメッセージに LLM が返信しなかったため、定型文で返します: action=%s, reason=%s",
+                    user_name, action, reason
+                )
+                await self._send_reply(note, text=fallback_text)
+                return
 
             if action == "react":
                 # リアクションのみ付与して会話終了（フェードアウト）
@@ -695,45 +725,8 @@ class MentionHandler:
             lambda t: logger.error("LLMプロセスエラー: %s", t.exception()) if t.exception() else None
         )
 
-    def _build_command_list(
-        self, user_id: str, user: dict, vis: str
-    ) -> list[tuple[tuple[str, ...], str | Callable[[], str], bool | None]]:
-        return [
-            (("はじめまして",), "はじめまして、わたしを見つけてくれてありがとう。これからよろしくね", None),
-            (("こんにちは",), "こんにちは、どうしたの？", None),
-            (("自己紹介", "あなたは？"), "わたしはここ「3.SMbps.net」の看板娘、さんごです。……看板娘は自称だけどね\nあなたのことも、さんごに教えて欲しいな", None),
-            (("よしよし", "なでなで"), "わたしの頭なんか撫でて、楽しい？ えっと、あなたが喜んでくれるなら、いいんだけど……", None),
-            (("にゃーん",), "にゃ〜ん", None),
-            (("罵って",), responses.get_random_response("to_you_abuse"), None),
-            (("ping",), "pong？", None),
-            (("さんごちゃん？",), f"どうしたの？ {self._store.get_display_name(user_id, user)}さん", None),
-            (("今何時", "いまなんじ"), responses.get_current_time_response, None),
-            (("ちくわ大明神",), "…なに？", True),
-        ]
-
-    async def _dispatch_command_list(self, note: dict) -> bool:
-        user = note["user"]
-        user_id = user["id"]
-        text = note.get("text", "")
-        vis = note.get("visibility", "public")
-        is_reply = note.get("replyId") is not None
-
-        for keywords, response, reply_rule in self._build_command_list(user_id, user, vis):
-            if reply_rule is not None:
-                if reply_rule is True and not is_reply:
-                    continue
-                if reply_rule is False and is_reply:
-                    continue
-            if any(kw in text for kw in keywords):
-                if callable(response):
-                    response = response()
-                await self._send_reply(note, text=response)
-                return True
-        return False
-
     async def _handle_dice(self, note: dict) -> None:
         text = note.get("text", "")
-        vis = note.get("visibility", "public")
         match = re.search(r"(\d+)d(\d+)", text.lower())
         if not match:
             return

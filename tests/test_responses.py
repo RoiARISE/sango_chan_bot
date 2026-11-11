@@ -40,8 +40,7 @@ def test_roll_dice_rejects_non_numeric_values(count, sides):
 
 
 def test_get_random_response_returns_a_member_of_the_category():
-    assert responses.get_random_response("go_work") in responses.GO_WORK
-    assert responses.get_random_response("morning") in responses.MORNING
+    assert responses.get_random_response("to_you_abuse") in responses.TO_YOU_ABUSE
 
 
 def test_get_random_response_unknown_category_is_empty():

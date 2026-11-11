@@ -100,19 +100,6 @@ class UserStore:
             return record.get("intimacy", 0)
         return 0
 
-    def set_intimacy(self, user_id: str, value: int, username: str = "") -> None:
-        if user_id not in self._data:
-            self._data[user_id] = {
-                "username": username,
-                "nickname": "",
-                "description": "",
-                "intimacy": 0,
-                "last_intimacy_increment_date": ""
-            }
-        clamped_value = max(-100, min(100, value))
-        self._data[user_id]["intimacy"] = clamped_value
-        self.save()
-
     def change_intimacy(self, user_id: str, change: int, username: str = "") -> tuple[int, bool]:
         """親密度を増減させ、変更後の値と、上昇が実際に適用されたかどうかを返します。
         上昇は1日1回（JST基準）のみに制限されます。下降は無制限です。

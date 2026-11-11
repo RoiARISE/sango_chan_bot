@@ -548,32 +548,155 @@ async def test_llm_none_does_not_post(handler, msk):
 
 
 # ---------------------------------------------------------------------------
-# command list and dice
+# command intents and dice
 # ---------------------------------------------------------------------------
 
 
-async def test_dispatch_command_list_replies_to_greeting(handler, msk):
-    handled = await handler._dispatch_command_list(fakes.note(text="こんにちは"))
+async def test_intent_greeting_uses_fixed_reply_when_llm_is_disabled(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", False)
+    run_llm = mock.AsyncMock()
 
-    assert handled is True
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot こんにちは"))
+
+    run_llm.assert_not_awaited()
     assert msk.created_notes()[-1]["text"] == "こんにちは、どうしたの？"
 
 
-async def test_dispatch_command_list_respects_reply_only_rules(handler, msk):
-    not_a_reply = fakes.note(text="ちくわ大明神")
-    assert await handler._dispatch_command_list(not_a_reply) is False
+async def test_intent_greeting_passes_hint_to_llm_and_forces_reply(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "やあ", "reason": "ok"}
+    )
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot こんにちは"))
+        assert await fakes.wait_until(lambda: bool(msk.created_notes()))
+
+    kwargs = run_llm.await_args.kwargs
+    assert "挨拶" in kwargs["intent_hint"]
+    assert msk.created_notes()[-1]["text"] == "やあ"
+
+
+async def test_intent_reply_is_sent_when_llm_tries_to_react(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "react", "reaction": "❤️", "reply": "", "reason": "done"}
+    )
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot こんにちは"))
+        assert await fakes.wait_until(lambda: bool(msk.created_notes()))
+
+    assert msk.created_notes()[-1]["text"] == "こんにちは、どうしたの？"
+
+
+async def test_fixed_intent_sangochaan_does_not_call_llm(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock()
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot さんごちゃーん"))
+
+    run_llm.assert_not_awaited()
+    assert msk.created_notes()[-1]["text"] == "は〜い"
+
+
+async def test_fixed_intent_nyaan_does_not_call_llm(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock()
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot にゃーん"))
+
+    run_llm.assert_not_awaited()
+    assert msk.created_notes()[-1]["text"] == "にゃ〜ん"
+
+
+async def test_nadenade_hint_says_sango_is_petted(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "えへへ", "reason": "ok"}
+    )
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot なでなで"))
+        assert await fakes.wait_until(lambda: bool(msk.created_notes()))
+
+    hint = run_llm.await_args.kwargs["intent_hint"]
+    assert "さんご" in hint
+    assert "撫でられ" in hint
+
+
+async def test_fixed_intent_ping_does_not_call_llm(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock()
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot ping"))
+
+    run_llm.assert_not_awaited()
+    assert msk.created_notes()[-1]["text"] == "pong？"
+
+
+async def test_fixed_intent_ping_accepts_trailing_punctuation(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock()
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot ping!!!"))
+
+    run_llm.assert_not_awaited()
+    assert msk.created_notes()[-1]["text"] == "pong？"
+
+
+async def test_ping_inside_english_word_goes_to_llm(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "LLMの返信", "reason": "ok"}
+    )
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot wrapping"))
+        assert await fakes.wait_until(lambda: bool(msk.created_notes()))
+
+    run_llm.assert_awaited_once()
+    assert msk.created_notes()[-1]["text"] == "LLMの返信"
+
+
+async def test_reply_only_intent_is_ignored_without_a_reply(handler, msk):
+    await handler.handle(fakes.note(text="@bot ちくわ大明神"))
     assert not msk.created_notes()
 
-    a_reply = fakes.note(text="ちくわ大明神", replyId="parent")
-    assert await handler._dispatch_command_list(a_reply) is True
+    await handler.handle(fakes.note(text="@bot ちくわ大明神", replyId="parent"))
     assert msk.created_notes()[-1]["text"] == "…なに？"
 
 
-async def test_dispatch_command_list_ignores_unknown_text(handler, msk):
-    handled = await handler._dispatch_command_list(fakes.note(text="とくに意味のない文章"))
+async def test_chikuwa_question_goes_to_llm(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "LLMの返信", "reason": "ok"}
+    )
 
-    assert handled is False
-    assert not msk.created_notes()
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot ちくわ大明神って何？"))
+        assert await fakes.wait_until(lambda: bool(msk.created_notes()))
+
+    run_llm.assert_awaited_once()
+    assert msk.created_notes()[-1]["text"] == "LLMの返信"
+
+
+async def test_time_intent_injects_the_current_time(handler, msk, monkeypatch):
+    monkeypatch.setattr(mention.config, "LLM_ENABLE", True)
+    run_llm = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "12:34:56", "reason": "ok"}
+    )
+
+    with mock.patch.object(mention.llm, "run_llm", run_llm):
+        await handler.handle(fakes.note(text="@bot 今何時"))
+        assert await fakes.wait_until(lambda: bool(msk.created_notes()))
+
+    assert "現在時刻" in run_llm.await_args.kwargs["intent_hint"]
 
 
 async def test_dice_replies_with_single_roll(handler, msk):
