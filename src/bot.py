@@ -1,12 +1,12 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import websockets
 from misskey import Misskey
 
-from . import config, responses
+from . import clock, config, responses
 from .handlers import FollowHandler, MentionHandler, TimelineHandler
 from .stores.user_store import UserStore
 
@@ -92,10 +92,9 @@ class MyBot:
                 await asyncio.sleep(5)
 
     async def timesignal_task(self):
-        """時報タスク: 毎時0分に定期投稿 (JST)"""
-        JST = timezone(timedelta(hours=9))
+        """時報タスク: 毎時0分に定期投稿（実行環境のタイムゾーン）"""
         while True:
-            now = datetime.now(JST)
+            now = clock.now()
             next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
             await asyncio.sleep((next_hour - now).total_seconds())
 
@@ -108,11 +107,10 @@ class MyBot:
                     logger.error("時報投稿に失敗", exc_info=True)
 
     async def relationship_cleanup_task(self):
-        """定期的にユーザーとのFF関係をチェックし、崩れていたら解除・削除する (毎日 00:00 と 12:00 JST に実行)"""
+        """定期的にユーザーとのFF関係をチェックし、崩れていたら解除・削除する (毎日 00:00 と 12:00 に実行)"""
         logger.info("FF関係クリーンアップタスクを起動しました")
-        JST = timezone(timedelta(hours=9))
         while True:
-            now = datetime.now(JST)
+            now = clock.now()
             today_00 = now.replace(hour=0, minute=0, second=0, microsecond=0)
             today_12 = now.replace(hour=12, minute=0, second=0, microsecond=0)
             tomorrow_00 = today_00 + timedelta(days=1)
@@ -124,7 +122,7 @@ class MyBot:
 
             sleep_seconds = (next_run - now).total_seconds()
             logger.info(
-                "次回の定期クリーンアップ実行予定時刻 (JST): %s (待機時間: %.1f秒)",
+                "次回の定期クリーンアップ実行予定時刻: %s (待機時間: %.1f秒)",
                 next_run.strftime("%Y-%m-%d %H:%M:%S"),
                 sleep_seconds
             )

@@ -1,5 +1,6 @@
 import random
-from datetime import datetime
+
+from . import clock
 
 SIGNALS = {
     1:  "……まだ寝てないの？ わたしは寝なくてもなんとかなるけど、あなたは違うでしょ…？",
@@ -31,7 +32,7 @@ def get_random_response(category: str) -> str:
 
 def get_current_time_text() -> str:
     """現在時刻を HH:MM:SS 形式で返す"""
-    return datetime.now().strftime("%H:%M:%S")
+    return clock.now().strftime("%H:%M:%S")
 
 
 def get_current_time_response() -> str:
