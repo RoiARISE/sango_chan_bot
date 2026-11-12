@@ -11,7 +11,7 @@ from src.stores.user_store import UserStore
 
 
 def make_handler(msk, tmp_path) -> TimelineHandler:
-    store = UserStore(str(tmp_path / "user_data.json"), msk, msk.my_id)
+    store = UserStore(str(tmp_path / "user_data.sqlite3"), msk, msk.my_id)
     store.load()
     return TimelineHandler(msk, store, msk.my_id)
 

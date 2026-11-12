@@ -21,6 +21,7 @@ from src import config
 @pytest.fixture
 def bot(msk, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "USER_DATA_FILE", str(tmp_path / "user_data.json"))
+    monkeypatch.setattr(config, "USER_DB_FILE", str(tmp_path / "user_data.sqlite3"))
     monkeypatch.setattr(config, "ADMIN_ID", "admin-id")
     return bot_module.MyBot(msk)
 
