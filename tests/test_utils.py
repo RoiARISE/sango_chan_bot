@@ -124,6 +124,20 @@ def test_audience_from_public_note_has_no_recipients():
     assert audience == utils.Audience("public", frozenset())
 
 
+def test_audience_from_home_note_is_publicly_readable():
+    # home はグローバルタイムラインに流すかどうかの違いで、閲覧範囲は public と同じ
+    audience = utils.Audience.from_note({"visibility": "home", "userId": "user-1"})
+
+    assert audience.visibility == "home"
+    assert audience.is_public
+
+
+def test_followers_audience_is_not_publicly_readable():
+    assert not utils.Audience("followers").is_public
+    assert not utils.Audience("specified").is_public
+    assert not utils.Audience("unknown").is_public
+
+
 def test_audience_from_specified_note_excludes_the_bot():
     note = {
         "visibility": "specified",
@@ -178,10 +192,12 @@ def test_specified_audience_requires_a_recipient_superset():
         ("followers", "followers", True),
         ("followers", "home", False),
         ("followers", "public", False),
+        ("home", "specified", True),
         ("home", "followers", True),
         ("home", "home", True),
-        ("home", "public", False),
+        ("home", "public", True),
+        ("public", "home", True),
     ],
 )
-def test_followers_and_home_follow_the_visibility_order(recorded, current, expected):
+def test_home_covers_the_same_audiences_as_public(recorded, current, expected):
     assert utils.Audience(recorded).covers(utils.Audience(current)) is expected

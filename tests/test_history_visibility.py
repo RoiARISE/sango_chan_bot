@@ -117,21 +117,31 @@ async def test_specified_history_is_dropped_when_the_current_recipients_are_wide
         ("followers", "followers", True),
         ("followers", "home", False),
         ("followers", "public", False),
+        ("home", "specified", True),
         ("home", "followers", True),
         ("home", "home", True),
-        ("home", "public", False),
+        ("home", "public", True),
         ("public", "specified", True),
         ("public", "followers", True),
         ("public", "home", True),
         ("public", "public", True),
     ],
 )
-async def test_history_is_filtered_by_visibility_rank(recorded, current, expected):
+async def test_history_is_filtered_by_audience_containment(recorded, current, expected):
     _seed([{"role": "user", "content": "ランクのテスト"}], [Audience(recorded)])
 
     contents = await _run(Audience(current))
 
     assert any("ランクのテスト" in content for content in contents) is expected
+
+
+async def test_home_history_is_sent_to_a_public_reply():
+    # home はグローバルタイムラインに流すかどうかの違いで、閲覧範囲は public と同じ
+    _seed([{"role": "user", "content": "ホームで話した話"}], [Audience("home")])
+
+    contents = await _run(Audience("public"))
+
+    assert any("ホームで話した話" in content for content in contents)
 
 
 async def test_assistant_reply_inherits_the_audience_of_its_turn():
@@ -212,6 +222,30 @@ async def test_profile_update_is_skipped_when_the_session_contains_a_private_tur
     assert store.get_profile("user-1") == ""
 
 
+async def test_profile_update_runs_for_a_home_session(store):
+    # home は誰でも閲覧できるので、プロフィール要約に含めてよい
+    _seed(
+        [
+            {"role": "user", "content": "公開の話"},
+            {"role": "user", "content": "ホームの話"},
+        ],
+        [Audience("public"), Audience("home")],
+    )
+    chat = mock.AsyncMock(
+        return_value={"action": "react", "reaction": "👍", "reply": "", "reason": "done"}
+    )
+    update = mock.AsyncMock()
+
+    with mock.patch.object(llm.openrouter, "chat_with_history", chat), \
+         mock.patch.object(llm, "_update_user_profile_in_background", update):
+        await llm.run_llm(
+            "user-1", "みー", "うん", is_reply=True, store=store, audience=Audience("home")
+        )
+        await asyncio.sleep(0)
+
+    update.assert_awaited_once()
+
+
 async def test_profile_update_is_skipped_at_the_turn_limit_for_a_private_session(store):
     history = [
         {"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
@@ -282,6 +316,19 @@ async def test_parent_images_are_skipped_when_the_parent_is_narrower(handler, ms
 
     assert urls == []
     assert sensitive is False
+
+
+async def test_parent_images_are_kept_for_a_home_parent(handler, msk):
+    # home の親ノートは誰でも閲覧できるので、public 返信でも画像を使ってよい
+    msk.parent_note = {
+        "visibility": "home",
+        "userId": "user-1",
+        "files": [{"type": "image/png", "url": "https://media.example/home.png"}],
+    }
+
+    urls, _ = await handler._fetch_parent_images("parent-1", Audience("public"))
+
+    assert urls == ["https://media.example/home.png"]
 
 
 async def test_parent_images_are_kept_when_the_parent_covers_the_reply(handler, msk):

@@ -1,17 +1,20 @@
 import re
 from dataclasses import dataclass
 
-# 数字が大きいほど、より広い聴衆に公開されるノートだとみなす
-_VISIBILITY_RANK = {"specified": 0, "followers": 1, "home": 2, "public": 3}
+# ノートを閲覧できる人の範囲。home は「グローバルタイムラインに流すか」の
+# 違いで、閲覧できる人は public と同じなので可視性の段階には含めない。
+_KNOWN_VISIBILITIES = {"public", "home", "followers", "specified"}
 UNKNOWN_VISIBILITY = "unknown"
 
 
 @dataclass(frozen=True)
 class Audience:
-    """ノートの可視性と、specified のときの宛先集合。
+    """ノートの閲覧範囲と、specified のときの宛先集合。
 
     ``covers(other)`` は「other に見える人は全員 self にも見えるか」を返す。
     会話履歴を今の返信に渡してよいかの判定に使う。
+
+    home はタイムラインへの配信範囲の違いで、閲覧できる人は public と同じ。
     """
 
     visibility: str
@@ -21,7 +24,7 @@ class Audience:
     def from_note(cls, note: dict, my_id: str | None = None) -> "Audience":
         raw = note.get("visibility")
         visibility = raw.lower() if isinstance(raw, str) else UNKNOWN_VISIBILITY
-        if visibility not in _VISIBILITY_RANK:
+        if visibility not in _KNOWN_VISIBILITIES:
             visibility = UNKNOWN_VISIBILITY
 
         recipients: frozenset[str] = frozenset()
@@ -40,19 +43,22 @@ class Audience:
 
         return cls(visibility=visibility, recipients=recipients)
 
+    @property
+    def is_public(self) -> bool:
+        """誰でも閲覧できるノートか。
+
+        home は配信範囲だけの違いなので public と同じく全員が閲覧できる。
+        """
+        return self.visibility in ("public", "home")
+
     def covers(self, other: "Audience") -> bool:
-        if self.visibility == "public":
-            # public は全員に見えるので、どの聴衆も包含する
+        if self.is_public:
+            # public / home は誰でも見られるので、どの聴衆も包含する
             return True
-        if self.visibility in ("home", "followers"):
-            # followers / home はどちらも投稿者のフォロワーに見える。
-            # specified はフォロワーとは限らないので含めない
-            if other.visibility not in _VISIBILITY_RANK:
-                return False
-            return (
-                other.visibility != "specified"
-                and _VISIBILITY_RANK[other.visibility] <= _VISIBILITY_RANK[self.visibility]
-            )
+        if self.visibility == "followers":
+            # followers は投稿者のフォロワーだけ。フォロワーかどうか分からない
+            # specified は含めない
+            return other.visibility == "followers"
         if self.visibility == "specified":
             return other.visibility == "specified" and other.recipients <= self.recipients
         # unknown は何も包含しない（fail-closed）

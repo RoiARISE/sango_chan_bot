@@ -73,12 +73,13 @@ def _visible_history(user_id: str, audience: Audience) -> list[dict]:
 
 
 def _session_is_public_only(user_id: str) -> bool:
-    """このセッションの全発言が public のノートで交わされたか。
+    """このセッションの全発言が誰でも閲覧できるノートで交わされたか。
 
+    home は配信範囲の違いで閲覧できる人は public と同じなので含める。
     プロフィール要約は発言内容をそのまま含むため、非公開の会話が
     1 つでも混ざっていれば更新しない。
     """
-    return all(audience.visibility == "public" for audience in _align_audiences(user_id))
+    return all(audience.is_public for audience in _align_audiences(user_id))
 
 
 async def _update_user_profile_in_background(
