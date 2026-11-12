@@ -111,3 +111,77 @@ def test_create_mention_string_for_remote_user():
 def test_create_mention_string_without_username_is_empty():
     assert utils.create_mention_string({}) == ""
     assert utils.create_mention_string({"host": "example.test"}) == ""
+
+
+# ---------------------------------------------------------------------------
+# Audience
+# ---------------------------------------------------------------------------
+
+
+def test_audience_from_public_note_has_no_recipients():
+    audience = utils.Audience.from_note({"visibility": "public", "userId": "user-1"})
+
+    assert audience == utils.Audience("public", frozenset())
+
+
+def test_audience_from_specified_note_excludes_the_bot():
+    note = {
+        "visibility": "specified",
+        "userId": "author",
+        "visibleUserIds": ["author", "bot-id", "other"],
+    }
+
+    audience = utils.Audience.from_note(note, "bot-id")
+
+    assert audience.visibility == "specified"
+    assert audience.recipients == frozenset({"author", "other"})
+
+
+def test_audience_from_specified_note_falls_back_to_the_author():
+    note = {"visibility": "specified", "user": {"id": "author"}, "visibleUserIds": ["bot-id"]}
+
+    audience = utils.Audience.from_note(note, "bot-id")
+
+    assert audience.recipients == frozenset({"author"})
+
+
+def test_audience_without_visibility_is_unknown():
+    assert utils.Audience.from_note({}).visibility == "unknown"
+    assert utils.Audience.from_note({"visibility": "friends"}).visibility == "unknown"
+
+
+def test_unknown_audience_covers_nothing():
+    unknown = utils.Audience("unknown")
+
+    assert not unknown.covers(utils.Audience("public"))
+    assert not unknown.covers(unknown)
+
+
+def test_public_audience_covers_everything():
+    public = utils.Audience("public")
+
+    assert public.covers(utils.Audience("specified", frozenset({"user-1"})))
+    assert public.covers(utils.Audience("followers"))
+    assert public.covers(utils.Audience("public"))
+
+
+def test_specified_audience_requires_a_recipient_superset():
+    audience = utils.Audience("specified", frozenset({"user-1", "user-2"}))
+
+    assert audience.covers(utils.Audience("specified", frozenset({"user-1"})))
+    assert not audience.covers(utils.Audience("specified", frozenset({"user-3"})))
+
+
+@pytest.mark.parametrize(
+    ("recorded", "current", "expected"),
+    [
+        ("followers", "followers", True),
+        ("followers", "home", False),
+        ("followers", "public", False),
+        ("home", "followers", True),
+        ("home", "home", True),
+        ("home", "public", False),
+    ],
+)
+def test_followers_and_home_follow_the_visibility_order(recorded, current, expected):
+    assert utils.Audience(recorded).covers(utils.Audience(current)) is expected

@@ -13,14 +13,17 @@ from unittest import mock
 import pytest
 
 import src.services.llm as llm
+from src.utils import Audience
 
 
 @pytest.fixture(autouse=True)
 def clean_memory():
     llm.user_memories.clear()
+    llm.user_memory_audiences.clear()
     llm.user_locks.clear()
     yield
     llm.user_memories.clear()
+    llm.user_memory_audiences.clear()
     llm.user_locks.clear()
 
 
@@ -78,6 +81,7 @@ async def test_turn_limit_ends_with_a_reaction(store):
         {"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
         for i in range(16)
     ]
+    llm.user_memory_audiences["user-1"] = [Audience("public")] * 16
     chat = mock.AsyncMock()
     update = mock.AsyncMock()
 
@@ -100,6 +104,7 @@ async def test_turn_limit_ends_with_a_reaction(store):
 @pytest.mark.parametrize("action", ["react", "none"])
 async def test_fade_out_clears_history_and_updates_profile(action, store):
     llm.user_memories["user-1"] = [{"role": "user", "content": "こんにちは"}]
+    llm.user_memory_audiences["user-1"] = [Audience("public")]
     chat = mock.AsyncMock(
         return_value={"action": action, "reaction": "👍", "reply": "", "reason": "done"}
     )
@@ -107,7 +112,9 @@ async def test_fade_out_clears_history_and_updates_profile(action, store):
 
     with mock.patch.object(llm.openrouter, "chat_with_history", chat), \
          mock.patch.object(llm, "_update_user_profile_in_background", update):
-        result = await llm.run_llm("user-1", "みー", "うん", is_reply=True, store=store)
+        result = await llm.run_llm(
+            "user-1", "みー", "うん", is_reply=True, store=store, audience=Audience("public")
+        )
         await asyncio.sleep(0)
 
     assert result["action"] == action

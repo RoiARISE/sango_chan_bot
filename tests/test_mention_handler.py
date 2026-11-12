@@ -458,7 +458,8 @@ def test_extract_images_without_images(handler):
 
 async def test_fetch_parent_images_reads_reply_target(handler, msk):
     msk.parent_note = {
-        "files": [{"type": "image/png", "url": "https://media.example/a.png"}]
+        "visibility": "public",
+        "files": [{"type": "image/png", "url": "https://media.example/a.png"}],
     }
     urls, sensitive = await handler._fetch_parent_images("parent-1")
 
