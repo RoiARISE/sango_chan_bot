@@ -123,7 +123,7 @@ async def run_llm(
     text: str,
     is_reply: bool = False,
     store: UserStore | None = None,
-    image_data_urls: list[str] | None = None,
+    image_urls: list[str] | None = None,
     has_sensitive_image: bool = False,
     intent_hint: str = "",
     audience: Audience | None = None,
@@ -150,11 +150,11 @@ async def run_llm(
     async with lock:
         # LLMに「誰からのメッセージか」を意識させるために名前を差し込む
         display_text = text.strip() if text and text.strip() else ""
-        if not display_text and image_data_urls:
+        if not display_text and image_urls:
             display_text = "（画像が送信されました）"
 
         prompt_with_name = f"[{user_name}さんからのメッセージ]\n{display_text}"
-        if image_data_urls:
+        if image_urls:
             prompt_with_name += "\n[画像が添付されています]"
             if has_sensitive_image:
                 prompt_with_name += " (注: センシティブ指定されている画像です)"
@@ -185,7 +185,7 @@ async def run_llm(
                 "reason": "safety_turn_limit_reached",
             }
 
-        # 履歴にはBase64ではなくテキスト情報のみを保存（トークン肥大化と分析エラーを防ぐ）
+        # 履歴にはテキスト情報のみを保存（トークン肥大化と分析エラーを防ぐ）
         _append_turn(
             user_id,
             {"role": "user", "content": prompt_with_name},
@@ -210,7 +210,7 @@ async def run_llm(
                 messages_for_llm,
                 user_profile=user_profile,
                 intimacy=intimacy,
-                image_data_urls=image_data_urls,
+                image_urls=image_urls,
                 convo_context=convo_context,
                 intent_hint=intent_hint,
             )

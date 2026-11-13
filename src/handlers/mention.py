@@ -671,10 +671,10 @@ class MentionHandler:
                     note["replyId"], audience
                 )
 
-            # 画像をBase64 Data URL形式にダウンロード＆変換
-            image_data_urls = None
+            # 画像URLはローカルで取得せず、検証したうえでAPIにそのまま渡す
+            validated_image_urls = None
             if image_urls and config.LLM_ENABLE:
-                image_data_urls = await image_utils.fetch_images_as_data_urls(image_urls)
+                validated_image_urls = await image_utils.validate_image_urls(image_urls)
 
             result = await llm.run_llm(
                 user_id=user_id,
@@ -682,7 +682,7 @@ class MentionHandler:
                 text=cleaned_text,
                 is_reply=is_reply,
                 store=self._store,
-                image_data_urls=image_data_urls,
+                image_urls=validated_image_urls,
                 has_sensitive_image=has_sensitive,
                 intent_hint=intent_hint or "",
                 audience=audience,

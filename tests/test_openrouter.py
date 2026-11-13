@@ -154,13 +154,13 @@ async def test_chat_turns_the_last_user_message_into_multimodal(monkeypatch):
 
     with install_client(response=response):
         await openrouter.chat_with_history(
-            history, image_data_urls=["data:image/png;base64,AAAA"]
+            history, image_urls=["https://media.example/a.png"]
         )
 
     request = FakeClient.instances[0].request
     content = request["json"]["messages"][-1]["content"]
     assert content[0] == {"type": "text", "text": "みて"}
-    assert content[1]["image_url"]["url"] == "data:image/png;base64,AAAA"
+    assert content[1]["image_url"]["url"] == "https://media.example/a.png"
     # The caller's history must not be mutated.
     assert history == [{"role": "user", "content": "みて"}]
 
