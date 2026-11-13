@@ -144,7 +144,7 @@ async def test_empty_text_with_image_gets_a_placeholder():
             "user-1",
             "みー",
             "",
-            image_data_urls=["data:image/png;base64,AAAA"],
+            image_urls=["https://media.example/a.png"],
             has_sensitive_image=True,
         )
 
