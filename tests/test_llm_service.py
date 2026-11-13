@@ -79,6 +79,8 @@ async def test_history_is_truncated_to_max_history():
 
 
 async def test_turn_limit_ends_with_a_reaction(store):
+    store.set_profile("user-1", "猫が好き", "みー")
+    store.change_intimacy("user-1", 1, "みー")
     chat = mock.AsyncMock(
         return_value={"action": "reply", "reaction": "❤️", "reply": "返事", "reason": ""}
     )
@@ -115,6 +117,9 @@ async def test_turn_limit_ends_with_a_reaction(store):
     }
     assert chat.await_count == 8
     update.assert_awaited_once()
+    uid, uname, history_arg, prof_arg, intimacy_arg, store_arg = update.await_args.args
+    assert (uid, uname, prof_arg, intimacy_arg, store_arg) == ("user-1", "みー", "猫が好き", 1, store)
+    assert len(history_arg) == llm.MAX_HISTORY
     assert llm.user_memories["user-1"] == []
     assert llm.user_turns["user-1"] == 0
     # 8往復目は convo_context に「8 ターン目」と伝わっていることも確認
