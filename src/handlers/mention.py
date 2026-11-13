@@ -558,14 +558,19 @@ class MentionHandler:
         return image_urls, has_sensitive
 
     async def _fetch_parent_images(
-        self, reply_id: str, audience: utils.Audience | None = None
+        self,
+        reply_id: str,
+        audience: utils.Audience | None = None,
+        parent_note: dict | None = None,
     ) -> tuple[list[str], bool]:
         """リプライ先の親ノートから画像URLとセンシティブフラグを取得する。
 
         親ノートの聴衆が今回の返信より狭い場合は、内容を広げないため取得しない。
+        ``parent_note`` が渡された場合は notes_show を省略する。
         """
         try:
-            parent_note = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
+            if parent_note is None:
+                parent_note = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
             if isinstance(parent_note, dict):
                 current = audience if audience is not None else utils.Audience("unknown")
                 parent_audience = utils.Audience.from_note(
@@ -584,32 +589,42 @@ class MentionHandler:
             logger.debug("親ノート画像取得スキップ/エラー (%s): %s", reply_id, e)
         return [], False
 
-    async def _is_reply_to_me(self, note: dict) -> bool:
-        """このノートが自分宛てのリプライ（会話スレッドの継続）かどうかを判定する"""
+    async def _resolve_reply_parent(self, note: dict) -> tuple[bool, dict | None]:
+        """リプライ先が自分宛てかを判定し、API で取得した親ノートも返す。
+
+        戻り値の親ノートは notes_show で取得した場合のみ設定される。
+        note に親ノートが埋め込まれている場合は API を呼ばないため None になる。
+        """
         reply_id = note.get("replyId")
         if not reply_id:
-            return False
+            return False, None
 
         my_id = getattr(self._store, "_my_id", None)
         if not my_id:
-            return False
+            return False, None
 
         # MisskeyのストリーミングAPIのnoteオブジェクトに reply が含まれている場合
         reply_note = note.get("reply")
         if isinstance(reply_note, dict):
             parent_uid = reply_note.get("userId") or reply_note.get("user", {}).get("id")
-            return parent_uid == my_id
+            return parent_uid == my_id, None
 
         # 含まれていない場合はAPIで親ノートを取得
         try:
             parent = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
-            if isinstance(parent, dict):
-                parent_uid = parent.get("userId") or parent.get("user", {}).get("id")
-                return parent_uid == my_id
         except Exception as e:
             logger.debug("親ノート取得エラー (%s): %s", reply_id, e)
+            return False, None
 
-        return False
+        if not isinstance(parent, dict):
+            return False, None
+        parent_uid = parent.get("userId") or parent.get("user", {}).get("id")
+        return parent_uid == my_id, parent
+
+    async def _is_reply_to_me(self, note: dict) -> bool:
+        """このノートが自分宛てのリプライ（会話スレッドの継続）かどうかを判定する"""
+        is_reply, _ = await self._resolve_reply_parent(note)
+        return is_reply
 
     async def _handle_intent(
         self,
@@ -651,7 +666,6 @@ class MentionHandler:
         user = note["user"]
         user_id = user["id"]
         text = note.get("text") or ""
-        is_reply = note.get("replyId") is not None
         audience = utils.Audience.from_note(note, getattr(self._store, "_my_id", None))
 
         async def process():
@@ -663,12 +677,15 @@ class MentionHandler:
             cleaned_text = re.sub(r'\+LLM|@\w+(?:@[\w.]+)?', '', text).strip()
             user_name = self._store.get_display_name(user_id, user)
 
-            # 画像URLの特定（直接添付画像、またはリプライ親ノートの画像）
+            # リプライ先が bot 自身のノートのときだけ会話スレッドを継続する
+            is_reply, parent_note = await self._resolve_reply_parent(note)
+
+            # 画像URLの特定（直接添付画像、または bot 宛てリプライの親ノートの画像）
             image_urls = list(direct_images) if direct_images else []
             has_sensitive = direct_sensitive
             if not image_urls and is_reply and note.get("replyId"):
                 image_urls, has_sensitive = await self._fetch_parent_images(
-                    note["replyId"], audience
+                    note["replyId"], audience, parent_note=parent_note
                 )
 
             # 画像をBase64 Data URL形式にダウンロード＆変換
