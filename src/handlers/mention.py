@@ -72,17 +72,8 @@ class MentionHandler:
         if cw:
             params["cw"] = cw
         if vis == "specified":
-            target_ids = set()
-            user_id = note.get("userId") or note.get("user", {}).get("id")
-            if user_id:
-                target_ids.add(user_id)
-            for uid in note.get("visibleUserIds") or []:
-                target_ids.add(uid)
-            if hasattr(self._store, "_my_id") and self._store._my_id:
-                target_ids.discard(self._store._my_id)
-            if not target_ids and user_id:
-                target_ids.add(user_id)
-            params["visible_user_ids"] = list(target_ids)
+            audience = utils.Audience.from_note(note, getattr(self._store, "_my_id", None))
+            params["visible_user_ids"] = sorted(audience.recipients)
         return params
 
     async def _send_reply(self, note: dict, text: str, **kwargs) -> dict:
@@ -566,11 +557,28 @@ class MentionHandler:
                         has_sensitive = True
         return image_urls, has_sensitive
 
-    async def _fetch_parent_images(self, reply_id: str) -> tuple[list[str], bool]:
-        """リプライ先の親ノートから画像URLとセンシティブフラグを取得する"""
+    async def _fetch_parent_images(
+        self, reply_id: str, audience: utils.Audience | None = None
+    ) -> tuple[list[str], bool]:
+        """リプライ先の親ノートから画像URLとセンシティブフラグを取得する。
+
+        親ノートの聴衆が今回の返信より狭い場合は、内容を広げないため取得しない。
+        """
         try:
             parent_note = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
             if isinstance(parent_note, dict):
+                current = audience if audience is not None else utils.Audience("unknown")
+                parent_audience = utils.Audience.from_note(
+                    parent_note, getattr(self._store, "_my_id", None)
+                )
+                if not parent_audience.covers(current):
+                    logger.info(
+                        "親ノートの聴衆が返信より狭いため画像を取得しません: reply_id=%s, parent=%s, reply=%s",
+                        reply_id,
+                        parent_audience.visibility,
+                        current.visibility,
+                    )
+                    return [], False
                 return self._extract_images_from_note(parent_note)
         except Exception as e:
             logger.debug("親ノート画像取得スキップ/エラー (%s): %s", reply_id, e)
@@ -644,6 +652,7 @@ class MentionHandler:
         user_id = user["id"]
         text = note.get("text") or ""
         is_reply = note.get("replyId") is not None
+        audience = utils.Audience.from_note(note, getattr(self._store, "_my_id", None))
 
         async def process():
             try:
@@ -658,7 +667,9 @@ class MentionHandler:
             image_urls = list(direct_images) if direct_images else []
             has_sensitive = direct_sensitive
             if not image_urls and is_reply and note.get("replyId"):
-                image_urls, has_sensitive = await self._fetch_parent_images(note["replyId"])
+                image_urls, has_sensitive = await self._fetch_parent_images(
+                    note["replyId"], audience
+                )
 
             # 画像をBase64 Data URL形式にダウンロード＆変換
             image_data_urls = None
@@ -674,6 +685,7 @@ class MentionHandler:
                 image_data_urls=image_data_urls,
                 has_sensitive_image=has_sensitive,
                 intent_hint=intent_hint or "",
+                audience=audience,
             )
 
             action = result.get("action", "reply")
