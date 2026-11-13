@@ -201,3 +201,32 @@ def test_specified_audience_requires_a_recipient_superset():
 )
 def test_home_covers_the_same_audiences_as_public(recorded, current, expected):
     assert utils.Audience(recorded).covers(utils.Audience(current)) is expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "<center>",
+        "$[x2 あ]",
+        "https://evil.example",
+        "[click](https://evil.example)",
+        "#tag",
+        "@victim",
+        "**bold**",
+    ],
+)
+def test_sanitize_nickname_is_idempotent_for_dangerous_sequences(raw):
+    once = utils.sanitize_nickname(raw)
+    assert utils.sanitize_nickname(once) == once
+
+
+def test_reply_audience_narrows_followers_to_the_author():
+    assert utils.reply_audience(
+        {"visibility": "followers", "userId": "author"}
+    ) == ("specified", ["author"])
+
+
+def test_reply_audience_keeps_home_public_and_specified():
+    assert utils.reply_audience({"visibility": "home"}) == ("home", None)
+    assert utils.reply_audience({"visibility": "public"}) == ("public", None)
+    assert utils.reply_audience({"visibility": "specified"}) == ("specified", None)

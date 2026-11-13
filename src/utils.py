@@ -65,6 +65,21 @@ class Audience:
         return False
 
 
+def reply_audience(note: dict) -> tuple[str, list[str] | None]:
+    """返信に使う可視性と、明示的な宛先を返す。
+
+    Misskey の ``followers`` は「そのノートの投稿者のフォロワー」基準。
+    bot が同じ値で返信すると、返信は bot のフォロワーに見えてしまうため、
+    投稿者だけへの ``specified`` に落とす。``home`` は配信範囲の違いで
+    閲覧範囲は ``public`` と同じなので、そのまま返す。
+    """
+    visibility = note.get("visibility", "public")
+    if not isinstance(visibility, str) or visibility.lower() != "followers":
+        return visibility, None
+    author_id = note.get("userId") or (note.get("user") or {}).get("id")
+    return "specified", [author_id] if author_id else []
+
+
 def extract_nickname(text):
     text = re.sub(r"@\S+", "", text)
     match = re.search(r"(.+?)(?:と呼んで|って呼んで)", text)
@@ -77,7 +92,8 @@ def extract_nickname(text):
 
 
 def sanitize_nickname(name: str) -> str:
-    return (
+    # 双方向制御文字は除去する。
+    name = (
         name.replace("\u061c", "")  # Arabic letter mark
         .replace("\u200e", "")  # Left-to-right mark
         .replace("\u200f", "")  # Right-to-left mark
@@ -90,14 +106,17 @@ def sanitize_nickname(name: str) -> str:
         .replace("\u2067", "")  # Right-to-left isolate
         .replace("\u2068", "")  # First strong isolate
         .replace("\u2069", "")  # Pop directional isolate
-        .replace("<", "<\u200b")  # <center>、<plain>など
-        .replace("$", "$\u200b")  # $[で始まるMFM全般
-        .replace("://", ":\u200b//")  # リンク
-        .replace("](", "]\u200b(")  # リンク
-        .replace("#", "#\u200b")  # ハッシュタグ
-        .replace("@", "@\u200b")  # メンション
-        .replace("*", "*\u200b")  # 太字、イタリック
     )
+    # 1文字のMFM開始子は、すでに ZWSP が続いている場合は二重に挿入しない。
+    # 読み出し時にも安全に再適用できるよう、この関数は冪等にする。
+    name = re.sub(r"<(?!\u200b)", "<\u200b", name)  # <center>、<plain>など
+    name = re.sub(r"\$(?!\u200b)", "$\u200b", name)  # $[で始まるMFM全般
+    name = name.replace("://", ":\u200b//")  # リンク
+    name = name.replace("](", "]\u200b(")  # リンク
+    name = re.sub(r"#(?!\u200b)", "#\u200b", name)  # ハッシュタグ
+    name = re.sub(r"@(?!\u200b)", "@\u200b", name)  # メンション
+    name = re.sub(r"\*(?!\u200b)", "*\u200b", name)  # 太字、イタリック
+    return name
 
 
 def validate_nickname(name: str) -> bool:

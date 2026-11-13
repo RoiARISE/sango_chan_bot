@@ -23,13 +23,21 @@ import src.handlers.mention as mention
 
 
 def test_reply_kwargs_copies_note_id_and_visibility(handler):
-    note = fakes.note(nid="n1", visibility="followers")
+    note = fakes.note(nid="n1", visibility="public")
     params = handler._get_reply_kwargs(note, "やあ")
 
     assert params["text"] == "やあ"
     assert params["reply_id"] == "n1"
-    assert params["visibility"] == "followers"
+    assert params["visibility"] == "public"
     assert "visible_user_ids" not in params
+
+
+def test_reply_kwargs_narrows_followers_to_the_author(handler):
+    note = fakes.note(nid="n1", user_id="author", visibility="followers")
+    params = handler._get_reply_kwargs(note, "やあ")
+
+    assert params["visibility"] == "specified"
+    assert params["visible_user_ids"] == ["author"]
 
 
 def test_reply_kwargs_falls_back_for_blank_text(handler):
@@ -116,6 +124,18 @@ async def test_follow_request_reports_existing_follow(handler, msk):
     )
 
     assert "もうフォローしてるよー" in msk.created_notes()[-1]["text"]
+
+
+async def test_follow_request_narrows_followers_to_the_author(handler, msk):
+    msk.relation = {"isFollowed": True, "isFollowing": True}
+
+    await handler._handle_follow_request(fakes.note(
+        nid="n1", user_id="author", text="@bot フォローして", visibility="followers"
+    ))
+
+    reply = msk.created_notes()[-1]
+    assert reply["visibility"] == "specified"
+    assert reply["visible_user_ids"] == ["author"]
 
 
 async def test_follow_request_follows_back_and_registers_user(handler, msk, store):
