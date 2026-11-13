@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 user_memories: dict = {}
 # 各発言をどの聴衆のノートで交わしたか（user_memories と同じ長さ・同じ順序）
 user_memory_audiences: dict[str, list[Audience]] = {}
-# 現在の連続会話スレッドで何往復完了したかを記録する辞書
+# ユーザーごとの連続会話で何往復完了したかを記録する辞書
 user_turns: dict[str, int] = {}
 # ユーザーごとの排他ロック
 user_locks: dict[str, asyncio.Lock] = {}
@@ -168,14 +168,14 @@ async def run_llm(
 
     current_audience = audience if audience is not None else _UNKNOWN_AUDIENCE
 
-    # 新規メンション（リプライではない）なら、過去の記憶を消去
-    if not is_reply:
-        _reset_history(user_id)
-        logger.debug("[%s] 新規メンションのため記憶をリセットしました", user_name)
-
     lock = user_locks.setdefault(user_id, asyncio.Lock())
 
     async with lock:
+        # 新規メンション（リプライではない）なら、過去の記憶を消去
+        if not is_reply:
+            _reset_history(user_id)
+            logger.debug("[%s] 新規メンションのため記憶をリセットしました", user_name)
+
         # LLMに「誰からのメッセージか」を意識させるために名前を差し込む
         display_text = text.strip() if text and text.strip() else ""
         if not display_text and image_data_urls:

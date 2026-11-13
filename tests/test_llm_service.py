@@ -145,6 +145,41 @@ async def test_new_mention_resets_turn_counter_after_long_conversation():
     assert "1 ターン目" in chat.await_args_list[-1].kwargs["convo_context"]
 
 
+async def test_concurrent_new_mention_during_turn_8_resets_inside_lock():
+    turn8_entered = asyncio.Event()
+    release_turn8 = asyncio.Event()
+
+    async def fake_chat(messages, **kwargs):
+        if "m8" in messages[-1]["content"]:
+            turn8_entered.set()
+            await release_turn8.wait()
+            return {"action": "reply", "reaction": "❤️", "reply": "8回目の返事", "reason": ""}
+        return {"action": "reply", "reaction": "❤️", "reply": "新しい返事", "reason": ""}
+
+    chat = mock.AsyncMock(side_effect=fake_chat)
+
+    with mock.patch.object(llm.openrouter, "chat_with_history", chat):
+        for turn in range(1, 8):
+            await llm.run_llm("user-1", "みー", f"m{turn}", is_reply=(turn > 1))
+
+        task8 = asyncio.create_task(llm.run_llm("user-1", "みー", "m8", is_reply=True))
+        await turn8_entered.wait()
+
+        task_new = asyncio.create_task(llm.run_llm("user-1", "みー", "別の話", is_reply=False))
+        await asyncio.sleep(0)
+
+        release_turn8.set()
+        res8, res_new = await asyncio.gather(task8, task_new)
+
+    assert res8["action"] == "reply"
+    assert res_new["action"] == "reply"
+    assert res_new["reply"] == "新しい返事"
+    assert llm.user_turns["user-1"] == 1
+    assert len(llm.user_memories["user-1"]) == 2
+    assert "別の話" in llm.user_memories["user-1"][0]["content"]
+    assert llm.user_memories["user-1"][1]["content"] == "新しい返事"
+
+
 async def test_llm_error_does_not_increment_turn_counter():
     chat = mock.AsyncMock(
         side_effect=[
