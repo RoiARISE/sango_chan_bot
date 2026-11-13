@@ -260,9 +260,9 @@ class MentionHandler:
                 await asyncio.to_thread(self._msk.following_delete, user_id=user_id)
                 logger.info("%s さんのフォローを解除しました", user.get("username"))
                 self._store.remove_user(user_id)
-                logger.info("%s さんの情報をuser_data.jsonから削除しました", user.get("username"))
+                logger.info("%s さんの情報をデータベースから削除しました", user.get("username"))
             except Exception:
-                logger.error("フォロー解除またはJSON削除エラー", exc_info=True)
+                logger.error("フォロー解除またはデータ削除エラー", exc_info=True)
                 await asyncio.to_thread(
                     self._msk.notes_create,
                     text="フォロー解除しようとしたけど、うまくいかなかったみたい……",

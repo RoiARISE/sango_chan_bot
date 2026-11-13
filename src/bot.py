@@ -26,7 +26,12 @@ class MyBot:
         self.msk = msk
         self.my_id = self.msk.i()["id"]
 
-        self._store = UserStore(config.USER_DATA_FILE, msk, self.my_id)
+        self._store = UserStore(
+            config.USER_DB_FILE,
+            msk,
+            self.my_id,
+            json_path=config.USER_DATA_FILE,
+        )
         self._store.load()
 
         self._follow_handler = FollowHandler(msk, self._store)
@@ -142,8 +147,8 @@ class MyBot:
         return await self.cleanup_inactive_relations()
 
     async def cleanup_inactive_relations(self) -> tuple[int, int]:
-        """相互フォロー（FF関係）が絶たれているユーザーを自動解除＆JSONから削除する"""
-        user_ids = list(self._store._data.keys())
+        """相互フォロー（FF関係）が絶たれているユーザーを自動解除＆データベースから削除する"""
+        user_ids = self._store.user_ids()
         if not user_ids:
             return 0, 0
 
@@ -191,9 +196,9 @@ class MyBot:
                             except Exception:
                                 logger.error("%s さんのフォロー自動解除に失敗しました", username, exc_info=True)
 
-                        # JSONストアから削除
+                        # データベースから削除
                         self._store.remove_user(uid)
-                        logger.info("%s さんのデータをJSONから削除しました", username)
+                        logger.info("%s さんのデータをデータベースから削除しました", username)
                         removed_count += 1
             except Exception:
                 logger.error("関係性チェックのバッチ実行中にエラーが発生しました", exc_info=True)

@@ -132,7 +132,7 @@ def msk() -> FakeMisskey:
 
 @pytest.fixture
 def store(msk: FakeMisskey, tmp_path) -> UserStore:
-    store = UserStore(str(tmp_path / "user_data.json"), msk, msk.my_id)
+    store = UserStore(str(tmp_path / "user_data.sqlite3"), msk, msk.my_id)
     store.load()
     return store
 

@@ -40,4 +40,8 @@ MAX_ACTIVE_TODOS = 100
 
 # --- ファイルパス ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 旧JSONデータ。SQLiteへの移行元としてのみ使用する。
 USER_DATA_FILE = os.path.join(BASE_DIR, '..', 'data', 'user_data.json')
+USER_DB_FILE = os.getenv(
+    'USER_DB_FILE', os.path.join(BASE_DIR, '..', 'data', 'user_data.sqlite3')
+)
