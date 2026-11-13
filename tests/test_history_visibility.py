@@ -22,10 +22,12 @@ from src.utils import Audience
 def clean_memory():
     llm.user_memories.clear()
     llm.user_memory_audiences.clear()
+    llm.user_turns.clear()
     llm.user_locks.clear()
     yield
     llm.user_memories.clear()
     llm.user_memory_audiences.clear()
+    llm.user_turns.clear()
     llm.user_locks.clear()
 
 
@@ -247,16 +249,18 @@ async def test_profile_update_runs_for_a_home_session(store):
 
 
 async def test_profile_update_is_skipped_at_the_turn_limit_for_a_private_session(store):
-    history = [
-        {"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
-        for i in range(18)
-    ]
-    _seed(history, [Audience("public")] * 17 + [_specified("user-1")])
-    chat = mock.AsyncMock()
+    chat = mock.AsyncMock(return_value=_reply())
     update = mock.AsyncMock()
 
     with mock.patch.object(llm.openrouter, "chat_with_history", chat), \
          mock.patch.object(llm, "_update_user_profile_in_background", update):
+        for turn in range(1, 8):
+            await llm.run_llm(
+                "user-1", "みー", f"公開{turn}", is_reply=(turn > 1), store=store, audience=Audience("public")
+            )
+        await llm.run_llm(
+            "user-1", "みー", "秘密8", is_reply=True, store=store, audience=_specified("user-1")
+        )
         result = await llm.run_llm(
             "user-1", "みー", "まだ話す？", is_reply=True, store=store, audience=Audience("public")
         )

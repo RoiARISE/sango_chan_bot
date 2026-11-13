@@ -11,10 +11,14 @@ logger = logging.getLogger(__name__)
 user_memories: dict = {}
 # 各発言をどの聴衆のノートで交わしたか（user_memories と同じ長さ・同じ順序）
 user_memory_audiences: dict[str, list[Audience]] = {}
+# 現在の連続会話スレッドで何往復完了したかを記録する辞書
+user_turns: dict[str, int] = {}
 # ユーザーごとの排他ロック
 user_locks: dict[str, asyncio.Lock] = {}
 # 過去何往復分の会話を覚えているか（いまのところ10件＝5往復に制限）
 MAX_HISTORY = 10
+# 連続会話の安全上限（往復数）。これを超えると強制的にリアクションで終了する
+MAX_TURNS = 8
 
 # 聴衆が分からない発言は、最も狭いものとして扱う（fail-closed）
 _UNKNOWN_AUDIENCE = Audience("unknown")
@@ -52,6 +56,7 @@ def _drop_last_turn(user_id: str) -> None:
 def _reset_history(user_id: str) -> None:
     user_memories[user_id] = []
     user_memory_audiences[user_id] = []
+    user_turns[user_id] = 0
 
 
 def _truncate_history(user_id: str) -> None:
@@ -162,13 +167,13 @@ async def run_llm(
         # 今回の聴衆にも見えていた履歴だけを使う
         visible_history = _visible_history(user_id, current_audience)
 
-        # ターン数（往復回数）の計算
-        history_turns = (len(visible_history) // 2) + 1
+        # ターン数（往復回数）の計算（MAX_HISTORY で履歴を切り捨てても正しく進めるため専用カウンタを使う）
+        current_turn = user_turns.get(user_id, 0) + 1
 
-        # コスト爆発防止の安全弁（保険: 8往復以上で強制リアクション終了）
-        if history_turns > 8:
-            logger.info("[%s] 会話ターン数が安全上限(%d)に達したため、リアクションで会話を終了します", user_name, history_turns)
-            if store is not None and user_memories[user_id]:
+        # コスト爆発防止の安全弁（保険: MAX_TURNS往復を超えたら強制リアクション終了）
+        if current_turn > MAX_TURNS:
+            logger.info("[%s] 会話ターン数が安全上限(%d)に達したため、リアクションで会話を終了します", user_name, current_turn)
+            if store is not None and user_memories.get(user_id):
                 if _session_is_public_only(user_id):
                     asyncio.create_task(
                         _update_user_profile_in_background(
@@ -201,8 +206,8 @@ async def run_llm(
             intimacy = store.get_intimacy(user_id)
 
         # 会話進行コンテキストの生成
-        convo_context = f"現在この相手とのスレッドでのやりとりは {history_turns} ターン目です。"
-        if history_turns >= 4:
+        convo_context = f"現在この相手とのスレッドでのやりとりは {current_turn} ターン目です。"
+        if current_turn >= 4:
             convo_context += " 話題が一区切りついている場合は、無理に会話を続けず react（リアクションのみで終了）を選択してフェードアウトしてください。"
 
         try:
@@ -224,6 +229,7 @@ async def run_llm(
                     {"role": "assistant", "content": reply_text},
                     current_audience,
                 )
+                user_turns[user_id] = current_turn
                 # 記憶が上限を超えたら、古いものから忘れる
                 _truncate_history(user_id)
             elif action in ("react", "none"):

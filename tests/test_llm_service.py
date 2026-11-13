@@ -20,10 +20,12 @@ from src.utils import Audience
 def clean_memory():
     llm.user_memories.clear()
     llm.user_memory_audiences.clear()
+    llm.user_turns.clear()
     llm.user_locks.clear()
     yield
     llm.user_memories.clear()
     llm.user_memory_audiences.clear()
+    llm.user_turns.clear()
     llm.user_locks.clear()
 
 
@@ -77,17 +79,32 @@ async def test_history_is_truncated_to_max_history():
 
 
 async def test_turn_limit_ends_with_a_reaction(store):
-    llm.user_memories["user-1"] = [
-        {"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
-        for i in range(16)
-    ]
-    llm.user_memory_audiences["user-1"] = [Audience("public")] * 16
-    chat = mock.AsyncMock()
+    chat = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "返事", "reason": ""}
+    )
     update = mock.AsyncMock()
 
     with mock.patch.object(llm.openrouter, "chat_with_history", chat), \
          mock.patch.object(llm, "_update_user_profile_in_background", update):
-        result = await llm.run_llm("user-1", "みー", "まだ話す？", is_reply=True, store=store)
+        for turn in range(1, 9):
+            result = await llm.run_llm(
+                "user-1",
+                "みー",
+                f"メッセージ{turn}",
+                is_reply=(turn > 1),
+                store=store,
+                audience=Audience("public"),
+            )
+            assert result["action"] == "reply"
+
+        result = await llm.run_llm(
+            "user-1",
+            "みー",
+            "まだ話す？",
+            is_reply=True,
+            store=store,
+            audience=Audience("public"),
+        )
         await asyncio.sleep(0)
 
     assert result == {
@@ -96,9 +113,53 @@ async def test_turn_limit_ends_with_a_reaction(store):
         "reply": "",
         "reason": "safety_turn_limit_reached",
     }
-    chat.assert_not_awaited()
+    assert chat.await_count == 8
     update.assert_awaited_once()
     assert llm.user_memories["user-1"] == []
+    assert llm.user_turns["user-1"] == 0
+    # 8往復目は convo_context に「8 ターン目」と伝わっていることも確認
+    assert "8 ターン目" in chat.await_args_list[-1].kwargs["convo_context"]
+
+
+async def test_new_mention_resets_turn_counter_after_long_conversation():
+    chat = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "返事", "reason": ""}
+    )
+
+    with mock.patch.object(llm.openrouter, "chat_with_history", chat):
+        for turn in range(1, 9):
+            await llm.run_llm("user-1", "みー", f"m{turn}", is_reply=(turn > 1))
+
+        assert llm.user_turns["user-1"] == 8
+
+        # 新規メンションなら1ターン目からやり直せる
+        result = await llm.run_llm("user-1", "みー", "別の話", is_reply=False)
+
+    assert result["action"] == "reply"
+    assert llm.user_turns["user-1"] == 1
+    assert "1 ターン目" in chat.await_args_list[-1].kwargs["convo_context"]
+
+
+async def test_llm_error_does_not_increment_turn_counter():
+    chat = mock.AsyncMock(
+        side_effect=[
+            {"action": "reply", "reaction": "❤️", "reply": "1回目", "reason": ""},
+            RuntimeError("upstream down"),
+            {"action": "reply", "reaction": "❤️", "reply": "リトライ成功", "reason": ""},
+        ]
+    )
+
+    with mock.patch.object(llm.openrouter, "chat_with_history", chat):
+        await llm.run_llm("user-1", "みー", "こんにちは", is_reply=False)
+        assert llm.user_turns["user-1"] == 1
+
+        err_result = await llm.run_llm("user-1", "みー", "失敗する話", is_reply=True)
+        assert err_result["reason"] == "run_llm_exception"
+        assert llm.user_turns["user-1"] == 1
+
+        ok_result = await llm.run_llm("user-1", "みー", "リトライ", is_reply=True)
+        assert ok_result["action"] == "reply"
+        assert llm.user_turns["user-1"] == 2
 
 
 @pytest.mark.parametrize("action", ["react", "none"])
