@@ -11,10 +11,14 @@ logger = logging.getLogger(__name__)
 user_memories: dict = {}
 # 各発言をどの聴衆のノートで交わしたか（user_memories と同じ長さ・同じ順序）
 user_memory_audiences: dict[str, list[Audience]] = {}
+# ユーザーごとの連続会話で何往復完了したかを記録する辞書
+user_turns: dict[str, int] = {}
 # ユーザーごとの排他ロック
 user_locks: dict[str, asyncio.Lock] = {}
 # 過去何往復分の会話を覚えているか（いまのところ10件＝5往復に制限）
 MAX_HISTORY = 10
+# 連続会話の安全上限（往復数）。これを超えると強制的にリアクションで終了する
+MAX_TURNS = 8
 
 # 聴衆が分からない発言は、最も狭いものとして扱う（fail-closed）
 _UNKNOWN_AUDIENCE = Audience("unknown")
@@ -52,6 +56,7 @@ def _drop_last_turn(user_id: str) -> None:
 def _reset_history(user_id: str) -> None:
     user_memories[user_id] = []
     user_memory_audiences[user_id] = []
+    user_turns[user_id] = 0
 
 
 def _truncate_history(user_id: str) -> None:
@@ -117,6 +122,29 @@ async def _update_user_profile_in_background(
         logger.error("[%s] プロファイル/親密度更新中にエラーが発生しました", user_name, exc_info=True)
 
 
+def _schedule_profile_update(
+    user_id: str,
+    user_name: str,
+    store: UserStore | None,
+    current_profile: str | None = None,
+    current_intimacy: int | None = None,
+) -> None:
+    """公開会話のみのセッションであればバックグラウンドでプロフィール/親密度更新を予約する。"""
+    if store is None or not user_memories.get(user_id):
+        return
+    if not _session_is_public_only(user_id):
+        logger.info("[%s] 非公開の会話を含むためプロフィール/親密度の更新をスキップします", user_name)
+        return
+
+    profile = store.get_profile(user_id) if current_profile is None else current_profile
+    intimacy = store.get_intimacy(user_id) if current_intimacy is None else current_intimacy
+    asyncio.create_task(
+        _update_user_profile_in_background(
+            user_id, user_name, list(user_memories[user_id]), profile, intimacy, store
+        )
+    )
+
+
 async def run_llm(
     user_id: str,
     user_name: str,
@@ -140,14 +168,14 @@ async def run_llm(
 
     current_audience = audience if audience is not None else _UNKNOWN_AUDIENCE
 
-    # 新規メンション（リプライではない）なら、過去の記憶を消去
-    if not is_reply:
-        _reset_history(user_id)
-        logger.debug("[%s] 新規メンションのため記憶をリセットしました", user_name)
-
     lock = user_locks.setdefault(user_id, asyncio.Lock())
 
     async with lock:
+        # 新規メンション（リプライではない）なら、過去の記憶を消去
+        if not is_reply:
+            _reset_history(user_id)
+            logger.debug("[%s] 新規メンションのため記憶をリセットしました", user_name)
+
         # LLMに「誰からのメッセージか」を意識させるために名前を差し込む
         display_text = text.strip() if text and text.strip() else ""
         if not display_text and image_data_urls:
@@ -162,21 +190,13 @@ async def run_llm(
         # 今回の聴衆にも見えていた履歴だけを使う
         visible_history = _visible_history(user_id, current_audience)
 
-        # ターン数（往復回数）の計算
-        history_turns = (len(visible_history) // 2) + 1
+        # ターン数（往復回数）の計算（MAX_HISTORY で履歴を切り捨てても正しく進めるため専用カウンタを使う）
+        current_turn = user_turns.get(user_id, 0) + 1
 
-        # コスト爆発防止の安全弁（保険: 8往復以上で強制リアクション終了）
-        if history_turns > 8:
-            logger.info("[%s] 会話ターン数が安全上限(%d)に達したため、リアクションで会話を終了します", user_name, history_turns)
-            if store is not None and user_memories[user_id]:
-                if _session_is_public_only(user_id):
-                    asyncio.create_task(
-                        _update_user_profile_in_background(
-                            user_id, user_name, list(user_memories[user_id]), "", 0, store
-                        )
-                    )
-                else:
-                    logger.info("[%s] 非公開の会話を含むためプロフィール/親密度の更新をスキップします", user_name)
+        # コスト爆発防止の安全弁（保険: MAX_TURNS往復を超えたら強制リアクション終了）
+        if current_turn > MAX_TURNS:
+            logger.info("[%s] 会話ターン数が安全上限(%d)に達したため、リアクションで会話を終了します", user_name, current_turn)
+            _schedule_profile_update(user_id, user_name, store)
             _reset_history(user_id)
             return {
                 "action": "react",
@@ -201,8 +221,8 @@ async def run_llm(
             intimacy = store.get_intimacy(user_id)
 
         # 会話進行コンテキストの生成
-        convo_context = f"現在この相手とのスレッドでのやりとりは {history_turns} ターン目です。"
-        if history_turns >= 4:
+        convo_context = f"現在この相手とのスレッドでのやりとりは {current_turn} ターン目です。"
+        if current_turn >= 4:
             convo_context += " 話題が一区切りついている場合は、無理に会話を続けず react（リアクションのみで終了）を選択してフェードアウトしてください。"
 
         try:
@@ -224,19 +244,12 @@ async def run_llm(
                     {"role": "assistant", "content": reply_text},
                     current_audience,
                 )
+                user_turns[user_id] = current_turn
                 # 記憶が上限を超えたら、古いものから忘れる
                 _truncate_history(user_id)
             elif action in ("react", "none"):
                 # 会話がフェードアウト（終了）したため、会話全体の履歴をもとにプロフィールを1度だけ更新
-                if store is not None and user_memories[user_id]:
-                    if _session_is_public_only(user_id):
-                        asyncio.create_task(
-                            _update_user_profile_in_background(
-                                user_id, user_name, list(user_memories[user_id]), user_profile, intimacy, store
-                            )
-                        )
-                    else:
-                        logger.info("[%s] 非公開の会話を含むためプロフィール/親密度の更新をスキップします", user_name)
+                _schedule_profile_update(user_id, user_name, store, user_profile, intimacy)
                 # 会話終了につきメモリをクリア
                 _reset_history(user_id)
 
