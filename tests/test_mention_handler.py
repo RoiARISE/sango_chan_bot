@@ -533,7 +533,7 @@ def _llm_reply() -> dict:
 async def test_reply_to_third_party_starts_new_conversation_without_parent_images(handler, msk):
     """第三者のノートへの返信ではスレッドを継続せず、親画像も取得しない（Issue #37）。"""
     run_llm = mock.AsyncMock(return_value=_llm_reply())
-    fetch_images = mock.AsyncMock(return_value=["data:image/jpeg;base64,AAAA"])
+    validate_images = mock.AsyncMock(return_value=["https://media.example/parent.png"])
     note = fakes.note(
         nid="n1",
         text="@bot これどう思う？",
@@ -542,14 +542,14 @@ async def test_reply_to_third_party_starts_new_conversation_without_parent_image
     )
 
     with mock.patch.object(mention.llm, "run_llm", run_llm), \
-         mock.patch.object(mention.image_utils, "fetch_images_as_data_urls", fetch_images):
+         mock.patch.object(mention.image_utils, "validate_image_urls", validate_images):
         await handler._handle_llm(note)
         assert await fakes.wait_until(lambda: run_llm.await_count == 1)
 
     assert run_llm.await_args.kwargs["is_reply"] is False
-    assert run_llm.await_args.kwargs["image_data_urls"] is None
+    assert run_llm.await_args.kwargs["image_urls"] is None
     assert not any(name == "notes_show" for name, _ in msk.calls)
-    fetch_images.assert_not_awaited()
+    validate_images.assert_not_awaited()
 
 
 async def test_reply_to_bot_continues_conversation_with_parent_images(handler, msk):
@@ -560,7 +560,7 @@ async def test_reply_to_bot_continues_conversation_with_parent_images(handler, m
         "files": [{"type": "image/png", "url": "https://media.example/parent.png"}],
     }
     run_llm = mock.AsyncMock(return_value=_llm_reply())
-    fetch_images = mock.AsyncMock(return_value=["data:image/jpeg;base64,AAAA"])
+    validate_images = mock.AsyncMock(return_value=["https://media.example/parent.png"])
     note = fakes.note(
         nid="n1",
         text="@bot これどう思う？",
@@ -569,14 +569,14 @@ async def test_reply_to_bot_continues_conversation_with_parent_images(handler, m
     )
 
     with mock.patch.object(mention.llm, "run_llm", run_llm), \
-         mock.patch.object(mention.image_utils, "fetch_images_as_data_urls", fetch_images):
+         mock.patch.object(mention.image_utils, "validate_image_urls", validate_images):
         await handler._handle_llm(note)
         assert await fakes.wait_until(lambda: run_llm.await_count == 1)
 
     assert run_llm.await_args.kwargs["is_reply"] is True
-    assert run_llm.await_args.kwargs["image_data_urls"] == ["data:image/jpeg;base64,AAAA"]
+    assert run_llm.await_args.kwargs["image_urls"] == ["https://media.example/parent.png"]
     assert ("notes_show", {"note_id": "parent-1"}) in msk.calls
-    fetch_images.assert_awaited_once_with(["https://media.example/parent.png"])
+    validate_images.assert_awaited_once_with(["https://media.example/parent.png"])
 
 
 async def test_reply_to_bot_fetches_the_parent_note_once(handler, msk):
@@ -597,32 +597,32 @@ async def test_reply_parent_fetch_failure_does_not_continue_conversation(handler
     """親ノートを取得できないときは fail-closed で新規会話として扱う（Issue #37）。"""
     msk.notes_show = mock.Mock(side_effect=RuntimeError("down"))
     run_llm = mock.AsyncMock(return_value=_llm_reply())
-    fetch_images = mock.AsyncMock(return_value=["data:image/jpeg;base64,AAAA"])
+    validate_images = mock.AsyncMock(return_value=["https://media.example/parent.png"])
 
     with mock.patch.object(mention.llm, "run_llm", run_llm), \
-         mock.patch.object(mention.image_utils, "fetch_images_as_data_urls", fetch_images):
+         mock.patch.object(mention.image_utils, "validate_image_urls", validate_images):
         await handler._handle_llm(
             fakes.note(nid="n1", text="@bot これどう思う？", replyId="parent-1")
         )
         assert await fakes.wait_until(lambda: run_llm.await_count == 1)
 
     assert run_llm.await_args.kwargs["is_reply"] is False
-    assert run_llm.await_args.kwargs["image_data_urls"] is None
-    fetch_images.assert_not_awaited()
+    assert run_llm.await_args.kwargs["image_urls"] is None
+    validate_images.assert_not_awaited()
 
 
 async def test_new_mention_without_reply_starts_new_conversation(handler, msk):
     run_llm = mock.AsyncMock(return_value=_llm_reply())
-    fetch_images = mock.AsyncMock(return_value=["data:image/jpeg;base64,AAAA"])
+    validate_images = mock.AsyncMock(return_value=["https://media.example/parent.png"])
 
     with mock.patch.object(mention.llm, "run_llm", run_llm), \
-         mock.patch.object(mention.image_utils, "fetch_images_as_data_urls", fetch_images):
+         mock.patch.object(mention.image_utils, "validate_image_urls", validate_images):
         await handler._handle_llm(fakes.note(nid="n1", text="@bot こんにちは"))
         assert await fakes.wait_until(lambda: run_llm.await_count == 1)
 
     assert run_llm.await_args.kwargs["is_reply"] is False
     assert not any(name == "notes_show" for name, _ in msk.calls)
-    fetch_images.assert_not_awaited()
+    validate_images.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
