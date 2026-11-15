@@ -41,7 +41,7 @@ def test_load_creates_schema_and_records_migrations(tmp_path):
         ]
 
     assert {"users", "schema_migrations"} <= tables
-    assert versions == [1, 2]
+    assert versions == [1, 2, 3]
 
 
 def test_load_imports_legacy_json_and_marks_it_migrated(tmp_path):
@@ -259,3 +259,73 @@ def test_migration_does_not_overwrite_existing_database_rows(tmp_path):
 
     assert store.get("user-1")["username"] == "from_db"
     assert store.get("user-1")["nickname"] == "DBの名前"
+
+
+def test_legacy_json_nickname_is_sanitized_on_import(tmp_path):
+    json_path = tmp_path / "user_data.json"
+    db_path = tmp_path / "user_data.sqlite3"
+    write_legacy_json(
+        json_path,
+        {
+            "user-1": {
+                "username": "user_1",
+                "nickname": "@victim $[x2 あ] https://evil.example #tag",
+                "description": "",
+                "intimacy": 0,
+                "last_intimacy_increment_date": "",
+            }
+        },
+    )
+
+    store = UserStore(str(db_path), FakeMsk(), "bot-id", json_path=str(json_path))
+    store.load()
+
+    stored = store.get("user-1")["nickname"]
+    for marker in ("@victim", "$[", "://", "#tag"):
+        assert marker not in stored
+    assert "@victim" not in store.get_display_name("user-1", {})
+
+
+def test_migration_sanitizes_existing_nicknames(tmp_path):
+    db_path = tmp_path / "user_data.sqlite3"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL DEFAULT '',
+                nickname TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                intimacy INTEGER NOT NULL DEFAULT 0,
+                last_intimacy_increment_date TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO users (id, username, nickname) VALUES (?, ?, ?)",
+            ("user-1", "user_1", "@victim $[x2 あ]"),
+        )
+        conn.execute(
+            """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.executemany(
+            "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+            [
+                (1, "create_users_table", "2026-01-01T00:00:00+00:00"),
+                (2, "import_legacy_json", "2026-01-01T00:00:00+00:00"),
+            ],
+        )
+
+    store = UserStore(str(db_path), FakeMsk(), "bot-id")
+    store.load()
+
+    stored = store.get("user-1")["nickname"]
+    for marker in ("@victim", "$["):
+        assert marker not in stored

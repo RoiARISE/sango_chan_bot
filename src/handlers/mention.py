@@ -48,8 +48,17 @@ class MentionHandler:
         # 同時実行数の確認と登録を競合させない
         self._todo_lock = asyncio.Lock()
 
+    @staticmethod
+    def _reply_audience_kwargs(note: dict) -> dict:
+        """直接 notes_create する経路でも followers の聴衆を狭める。"""
+        visibility, forced = utils.reply_audience(note)
+        params: dict = {"visibility": visibility}
+        if forced is not None:
+            params["visible_user_ids"] = forced
+        return params
+
     def _get_reply_kwargs(self, note: dict, text: str, **kwargs) -> dict:
-        vis = note.get("visibility", "public")
+        vis, forced = utils.reply_audience(note)
         # 本文が空または空白のみの場合はフォールバック
         clean_text = text if (text and str(text).strip()) else "……？"
 
@@ -73,7 +82,10 @@ class MentionHandler:
             params["cw"] = cw
         if vis == "specified":
             audience = utils.Audience.from_note(note, getattr(self._store, "_my_id", None))
-            params["visible_user_ids"] = sorted(audience.recipients)
+            recipients = set(audience.recipients)
+            if forced:
+                recipients.update(forced)
+            params["visible_user_ids"] = sorted(recipients)
         return params
 
     async def _send_reply(self, note: dict, text: str, **kwargs) -> dict:
@@ -165,7 +177,6 @@ class MentionHandler:
     async def _handle_follow_request(self, note: dict) -> None:
         user = note["user"]
         user_id = user["id"]
-        vis = note.get("visibility", "public")
         try:
             relation = await asyncio.to_thread(self._msk.users_show, user_id=user_id)
             relation = cast(dict, relation)
@@ -175,7 +186,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="ごめんね、今ちょっと調子が悪いみたい……",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
 
@@ -184,7 +195,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="……だれ？",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
 
@@ -194,7 +205,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text=f"{name}さん、もうフォローしてるよー",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
 
@@ -209,7 +220,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text=f"{mention} フォローバックしたよ、{name}さん。これからよろしくね",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             logger.info("%s さんをフォローしました", name)
         except Exception:
@@ -218,13 +229,12 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="フォローしようとしたけど、うまくいかなかったみたい……",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
 
     async def _handle_unfollow_request(self, note: dict) -> None:
         user = note["user"]
         user_id = user["id"]
-        vis = note.get("visibility", "public")
         try:
             relation = await asyncio.to_thread(self._msk.users_show, user_id=user_id)
             relation = cast(dict, relation)
@@ -234,7 +244,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="ごめんね、今ちょっと調子が悪いみたい……",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
 
@@ -244,7 +254,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text=f"{mention} さよなら、になっちゃうのかな……",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             await asyncio.sleep(10)
             try:
@@ -258,7 +268,7 @@ class MentionHandler:
                     self._msk.notes_create,
                     text="フォロー解除しようとしたけど、うまくいかなかったみたい……",
                     reply_id=note["id"],
-                    visibility=vis
+                    **self._reply_audience_kwargs(note)
                 )
         else:
             mention = create_mention_string(user)
@@ -266,20 +276,19 @@ class MentionHandler:
                 self._msk.notes_create,
                 text=f"{mention} もともとフォローしてないよー",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
 
     async def _handle_cleanup_command(self, note: dict) -> None:
         user = note["user"]
         user_id = user["id"]
-        vis = note.get("visibility", "public")
 
         if user_id != self._admin_id:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="この機能は使える人が限られてるんだ。ゴメンね",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
 
@@ -287,7 +296,7 @@ class MentionHandler:
             self._msk.notes_create,
             text="関係性のクリーンアップを確認するから、少し待っててね……",
             reply_id=note["id"],
-            visibility=vis
+            **self._reply_audience_kwargs(note)
         )
 
         if self._cleanup_callback:
@@ -297,7 +306,7 @@ class MentionHandler:
                     self._msk.notes_create,
                     text=f"終わったよー\n検証対象: {checked_count}人\n削除/解除対象: {removed_count}人",
                     reply_id=note["id"],
-                    visibility=vis
+                    **self._reply_audience_kwargs(note)
                 )
             except Exception:
                 logger.error("手動クリーンアップ実行エラー", exc_info=True)
@@ -305,21 +314,20 @@ class MentionHandler:
                     self._msk.notes_create,
                     text="ごめん、クリーンアップ中にエラーが発生しちゃったみたい……",
                     reply_id=note["id"],
-                    visibility=vis
+                    **self._reply_audience_kwargs(note)
                 )
         else:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="クリーンアップ機能が正しく設定されていないみたいだよ",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
 
     async def _handle_nickname_set(self, note: dict) -> None:
         user = note["user"]
         user_id = user["id"]
         text = note.get("text", "")
-        vis = note.get("visibility", "public")
 
         nickname = utils.extract_nickname(text)
         if not nickname:
@@ -327,7 +335,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="えっと、名前がうまく聞き取れなかったかも……",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
         if len(nickname) > config.MAX_NICKNAME_LENGTH:
@@ -335,7 +343,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text=f"えぇっと、その名前はちょっと長いかも……\n{config.MAX_NICKNAME_LENGTH}文字以内にしてほしいな",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
         sanitized = utils.sanitize_nickname(nickname)
@@ -344,7 +352,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="えぇっと、その名前はちょっと……、だめかも……",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
         self._store.set_nickname(user_id, sanitized, user.get("username", ""))
@@ -352,18 +360,17 @@ class MentionHandler:
             self._msk.notes_create,
             text=f"わかった。これからは{sanitized}さんって呼ぶね\nこれからもよろしくね、{sanitized}さん",
             reply_id=note["id"],
-            visibility=vis
+            **self._reply_audience_kwargs(note)
         )
         logger.info("あだ名を登録: %s -> %s", user_id, sanitized)
 
     async def _handle_nickname_clear(self, note: dict) -> None:
         user = note["user"]
         user_id = user["id"]
-        vis = note.get("visibility", "public")
 
         record = self._store.get(user_id)
         if record and record.get("nickname"):
-            old_nickname = record["nickname"]
+            old_nickname = utils.sanitize_nickname(str(record["nickname"]))
             self._store.clear_nickname(user_id)
             try:
                 mentioner_data = await asyncio.to_thread(self._msk.users_show, user_id=user_id)
@@ -374,7 +381,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text=f"うん、「{old_nickname}」さんって呼び方は忘れたよ。これからは{new_name}さんって呼ぶね",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             logger.info("あだ名をリセット: %s", user_id)
         else:
@@ -382,19 +389,19 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="もともと特別な呼び名は登録されていないみたいだよ",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
 
     async def _handle_speedtest(self, note: dict) -> None:
         user_id = note["user"]["id"]
-        vis = note.get("visibility", "public")
+        vis, _ = utils.reply_audience(note)
 
         if user_id != self._admin_id:
             await asyncio.to_thread(
                 self._msk.notes_create,
                 text="この機能は使える人が限られてるんだ。ゴメンね",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             return
 
@@ -402,7 +409,7 @@ class MentionHandler:
             self._msk.notes_create,
             text="了解。じゃあ計測してくるね",
             reply_id=note["id"],
-            visibility=vis
+            **self._reply_audience_kwargs(note)
         )
         try:
             speedtest_task = asyncio.create_task(
@@ -413,7 +420,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="計測中だよ、いまは話しかけないでね……",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
             speed_result = await speedtest_task
 
@@ -425,14 +432,14 @@ class MentionHandler:
                     self._msk.notes_create,
                     text=speed_result,
                     renote_id=note["id"],
-                    visibility=vis
+                    **self._reply_audience_kwargs(note)
                 )
             else:
                 await asyncio.to_thread(
                     self._msk.notes_create,
                     text=speed_result,
                     reply_id=note["id"],
-                    visibility=vis
+                    **self._reply_audience_kwargs(note)
                 )
         except asyncio.TimeoutError:
             logger.error("Speedtest エラー: タイムアウト")
@@ -440,7 +447,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="ごめん、計測が1分経っても終わらないみたい……",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
         except Exception:
             logger.error("Speedtest エラー", exc_info=True)
@@ -448,7 +455,7 @@ class MentionHandler:
                 self._msk.notes_create,
                 text="何かがおかしいかも……、もう一度やってみて？",
                 reply_id=note["id"],
-                visibility=vis
+                **self._reply_audience_kwargs(note)
             )
 
     def _active_todo_count(self, user_id: str | None = None) -> int:
@@ -467,7 +474,7 @@ class MentionHandler:
 
     async def _handle_todo(self, note: dict) -> None:
         user_id = note["user"]["id"]
-        vis = note.get("visibility", "public")
+        vis, _ = utils.reply_audience(note)
         note_id = note["id"]
 
         text_to_send = "これやった？"
@@ -523,7 +530,7 @@ class MentionHandler:
                         self._msk.notes_create,
                         text=text_to_send,
                         reply_id=note_id,
-                        visibility=vis
+                        **self._reply_audience_kwargs(note)
                     )
 
                     # リマインダーのノートIDを追跡（「やった」返信の検知用）
@@ -558,14 +565,19 @@ class MentionHandler:
         return image_urls, has_sensitive
 
     async def _fetch_parent_images(
-        self, reply_id: str, audience: utils.Audience | None = None
+        self,
+        reply_id: str,
+        audience: utils.Audience | None = None,
+        parent_note: dict | None = None,
     ) -> tuple[list[str], bool]:
         """リプライ先の親ノートから画像URLとセンシティブフラグを取得する。
 
         親ノートの聴衆が今回の返信より狭い場合は、内容を広げないため取得しない。
+        ``parent_note`` が渡された場合は notes_show を省略する。
         """
         try:
-            parent_note = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
+            if parent_note is None:
+                parent_note = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
             if isinstance(parent_note, dict):
                 current = audience if audience is not None else utils.Audience("unknown")
                 parent_audience = utils.Audience.from_note(
@@ -584,32 +596,42 @@ class MentionHandler:
             logger.debug("親ノート画像取得スキップ/エラー (%s): %s", reply_id, e)
         return [], False
 
-    async def _is_reply_to_me(self, note: dict) -> bool:
-        """このノートが自分宛てのリプライ（会話スレッドの継続）かどうかを判定する"""
+    async def _resolve_reply_parent(self, note: dict) -> tuple[bool, dict | None]:
+        """リプライ先が自分宛てかを判定し、API で取得した親ノートも返す。
+
+        戻り値の親ノートは notes_show で取得した場合のみ設定される。
+        note に親ノートが埋め込まれている場合は API を呼ばないため None になる。
+        """
         reply_id = note.get("replyId")
         if not reply_id:
-            return False
+            return False, None
 
         my_id = getattr(self._store, "_my_id", None)
         if not my_id:
-            return False
+            return False, None
 
         # MisskeyのストリーミングAPIのnoteオブジェクトに reply が含まれている場合
         reply_note = note.get("reply")
         if isinstance(reply_note, dict):
             parent_uid = reply_note.get("userId") or reply_note.get("user", {}).get("id")
-            return parent_uid == my_id
+            return parent_uid == my_id, None
 
         # 含まれていない場合はAPIで親ノートを取得
         try:
             parent = await asyncio.to_thread(self._msk.notes_show, note_id=reply_id)
-            if isinstance(parent, dict):
-                parent_uid = parent.get("userId") or parent.get("user", {}).get("id")
-                return parent_uid == my_id
         except Exception as e:
             logger.debug("親ノート取得エラー (%s): %s", reply_id, e)
+            return False, None
 
-        return False
+        if not isinstance(parent, dict):
+            return False, None
+        parent_uid = parent.get("userId") or parent.get("user", {}).get("id")
+        return parent_uid == my_id, parent
+
+    async def _is_reply_to_me(self, note: dict) -> bool:
+        """このノートが自分宛てのリプライ（会話スレッドの継続）かどうかを判定する"""
+        is_reply, _ = await self._resolve_reply_parent(note)
+        return is_reply
 
     async def _handle_intent(
         self,
@@ -651,7 +673,6 @@ class MentionHandler:
         user = note["user"]
         user_id = user["id"]
         text = note.get("text") or ""
-        is_reply = note.get("replyId") is not None
         audience = utils.Audience.from_note(note, getattr(self._store, "_my_id", None))
 
         async def process():
@@ -663,12 +684,15 @@ class MentionHandler:
             cleaned_text = re.sub(r'\+LLM|@\w+(?:@[\w.]+)?', '', text).strip()
             user_name = self._store.get_display_name(user_id, user)
 
-            # 画像URLの特定（直接添付画像、またはリプライ親ノートの画像）
+            # リプライ先が bot 自身のノートのときだけ会話スレッドを継続する
+            is_reply, parent_note = await self._resolve_reply_parent(note)
+
+            # 画像URLの特定（直接添付画像、または bot 宛てリプライの親ノートの画像）
             image_urls = list(direct_images) if direct_images else []
             has_sensitive = direct_sensitive
             if not image_urls and is_reply and note.get("replyId"):
                 image_urls, has_sensitive = await self._fetch_parent_images(
-                    note["replyId"], audience
+                    note["replyId"], audience, parent_note=parent_note
                 )
 
             # 画像をBase64 Data URL形式にダウンロード＆変換

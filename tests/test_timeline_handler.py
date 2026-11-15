@@ -59,6 +59,19 @@ async def test_timeline_may_answer_a_call(msk, tmp_path):
     assert reply["visibility"] == "public"
 
 
+async def test_timeline_narrows_a_followers_reply_to_the_author(msk, tmp_path):
+    handler = make_handler(msk, tmp_path)
+
+    with mock.patch.object(timeline.random, "randint", return_value=1):
+        await handler.handle(fakes.note(
+            nid="n1", user_id="author", text="ねえさんごちゃん", visibility="followers"
+        ))
+
+    reply = msk.created_notes()[-1]
+    assert reply["visibility"] == "specified"
+    assert reply["visible_user_ids"] == ["author"]
+
+
 async def test_timeline_ignores_nobot_users(msk, tmp_path):
     handler = make_handler(msk, tmp_path)
     msk.relation["description"] = "よろしくお願いします。 #nobot"

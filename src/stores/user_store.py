@@ -35,6 +35,18 @@ def _create_users_table(conn: sqlite3.Connection) -> None:
     )
 
 
+def _sanitize_nicknames(conn: sqlite3.Connection) -> None:
+    """既存行のニックネームにもサニタイザを適用する（冪等）。"""
+    for user_id, nickname in conn.execute("SELECT id, nickname FROM users"):
+        if not nickname:
+            continue
+        sanitized = sanitize_nickname(str(nickname))
+        if sanitized != nickname:
+            conn.execute(
+                "UPDATE users SET nickname = ? WHERE id = ?", (sanitized, user_id)
+            )
+
+
 def _coerce_intimacy(value: object) -> int:
     try:
         return _clamp_intimacy(int(value))  # type: ignore[arg-type]
@@ -103,6 +115,7 @@ class UserStore:
         return [
             Migration(1, "create_users_table", _create_users_table),
             Migration(2, "import_legacy_json", self._import_legacy_json),
+            Migration(3, "sanitize_nicknames", _sanitize_nicknames),
         ]
 
     def _read_legacy_json(self) -> dict | None:
@@ -154,7 +167,7 @@ class UserStore:
                 (
                     user_id,
                     record.get("username") or "",
-                    record.get("nickname") or "",
+                    sanitize_nickname(str(record.get("nickname") or "")),
                     record.get("description") or "",
                     _coerce_intimacy(record.get("intimacy", 0)),
                     record.get("last_intimacy_increment_date") or "",
@@ -258,7 +271,7 @@ class UserStore:
     def get_display_name(self, user_id: str, user_data: dict | None = None) -> str:
         record = self.get(user_id)
         if record and record.get("nickname"):
-            return record["nickname"]
+            return sanitize_nickname(str(record["nickname"]))
         if user_data and user_data.get("name"):
             return sanitize_nickname(user_data["name"])
         if user_data and user_data.get("username"):
