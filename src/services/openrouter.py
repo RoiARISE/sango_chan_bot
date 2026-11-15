@@ -207,7 +207,7 @@ async def chat_with_history(
     messages_history: list,
     user_profile: str = "",
     intimacy: int = 0,
-    image_data_urls: list[str] | None = None,
+    image_urls: list[str] | None = None,
     convo_context: str = "",
     intent_hint: str = "",
 ) -> dict:
@@ -243,15 +243,15 @@ async def chat_with_history(
             "react や none は選ばないでください。"
         )
 
-    # 履歴をコピー（画像変換が元の履歴オブジェクトに影響しないようにする）
+    # 履歴をコピー（マルチモーダル化が元の履歴オブジェクトに影響しないようにする）
     messages = [{"role": "system", "content": system_content}] + [dict(m) for m in messages_history]
 
     # 画像が指定されている場合、最新のuserメッセージをマルチモーダル形式に変換
-    if image_data_urls and messages:
+    if image_urls and messages:
         last_msg = messages[-1]
         if last_msg.get("role") == "user":
             content_list: list[dict] = [{"type": "text", "text": str(last_msg.get("content", ""))}]
-            for img_url in image_data_urls:
+            for img_url in image_urls:
                 content_list.append({
                     "type": "image_url",
                     "image_url": {
