@@ -13,12 +13,24 @@ user_memories: dict = {}
 user_memory_audiences: dict[str, list[Audience]] = {}
 # ユーザーごとの連続会話で何往復完了したかを記録する辞書
 user_turns: dict[str, int] = {}
+# user_memories[user_id] のうちプロフィール/親密度分析へ回し終えた先頭件数
+user_analyzed_upto: dict[str, int] = {}
+# ユーザーごとのデバウンス待機タイマー
+user_profile_timers: dict[str, asyncio.Task] = {}
+# デバウンス待機中の更新対象 (user_name, store)
+_pending_profile_targets: dict[str, tuple[str, UserStore]] = {}
+# 実行中のバックグラウンドプロフィール更新タスク
+_active_profile_update_tasks: set[asyncio.Task] = set()
+# ユーザーごとのバックグラウンドプロフィール更新直列化ロック
+user_profile_update_locks: dict[str, asyncio.Lock] = {}
 # ユーザーごとの排他ロック
 user_locks: dict[str, asyncio.Lock] = {}
 # 過去何往復分の会話を覚えているか（いまのところ10件＝5往復に制限）
 MAX_HISTORY = 10
 # 連続会話の安全上限（往復数）。これを超えると強制的にリアクションで終了する
 MAX_TURNS = 8
+# reply 終了後に次の返信が無ければ会話一区切りとみなすデバウンス待機秒数
+PROFILE_UPDATE_DELAY = 60.0
 
 # 聴衆が分からない発言は、最も狭いものとして扱う（fail-closed）
 _UNKNOWN_AUDIENCE = Audience("unknown")
@@ -51,19 +63,26 @@ def _drop_last_turn(user_id: str) -> None:
         user_memories[user_id].pop()
     if audiences:
         audiences.pop()
+    if user_id in user_analyzed_upto:
+        user_analyzed_upto[user_id] = min(
+            user_analyzed_upto[user_id], len(user_memories.get(user_id, []))
+        )
 
 
 def _reset_history(user_id: str) -> None:
     user_memories[user_id] = []
     user_memory_audiences[user_id] = []
     user_turns[user_id] = 0
+    user_analyzed_upto[user_id] = 0
 
 
 def _truncate_history(user_id: str) -> None:
     audiences = _align_audiences(user_id)
-    if len(user_memories[user_id]) > MAX_HISTORY:
+    overflow = len(user_memories[user_id]) - MAX_HISTORY
+    if overflow > 0:
         user_memories[user_id] = user_memories[user_id][-MAX_HISTORY:]
         user_memory_audiences[user_id] = audiences[-MAX_HISTORY:]
+        user_analyzed_upto[user_id] = max(0, user_analyzed_upto.get(user_id, 0) - overflow)
 
 
 def _visible_history(user_id: str, audience: Audience) -> list[dict]:
@@ -88,38 +107,59 @@ def _session_is_public_only(user_id: str) -> bool:
 
 
 async def _update_user_profile_in_background(
-    user_id: str, user_name: str, history: list, current_profile: str, current_intimacy: int, store: UserStore
+    user_id: str,
+    user_name: str,
+    history: list,
+    current_profile: str,
+    current_intimacy: int,
+    store: UserStore,
+    *,
+    delay: float = 5.0,
+    refresh_from_store: bool = False,
 ) -> None:
     try:
         # 返信直後の連続リクエストによるクォータ超過(429)を避けるため少し待機
-        await asyncio.sleep(5)
-        analysis = await openrouter.analyze_user_interaction(
-            history, current_profile, current_intimacy, user_name
-        )
-        new_profile = analysis.get("description")
-        intimacy_change = analysis.get("intimacy_change", 0)
+        if delay > 0:
+            await asyncio.sleep(delay)
 
-        if new_profile:
-            store.set_profile(user_id, new_profile, user_name)
-            logger.info("[%s] プロファイルを更新しました: %s", user_name, new_profile)
+        update_lock = user_profile_update_locks.setdefault(user_id, asyncio.Lock())
+        async with update_lock:
+            profile = store.get_profile(user_id) if refresh_from_store else current_profile
+            intimacy = store.get_intimacy(user_id) if refresh_from_store else current_intimacy
+            analysis = await openrouter.analyze_user_interaction(
+                history, profile, intimacy, user_name
+            )
+            new_profile = analysis.get("description")
+            intimacy_change = analysis.get("intimacy_change", 0)
 
-        if intimacy_change != 0:
-            new_intimacy, applied = store.change_intimacy(user_id, intimacy_change, user_name)
-            if applied:
-                logger.info(
-                    "[%s] 親密度が変化しました: %d (%+d)",
-                    user_name,
-                    new_intimacy,
-                    intimacy_change
-                )
-            else:
-                logger.info(
-                    "[%s] 親密度の上昇要求がありましたが、1日1回の制限のため適用されませんでした。(現在: %d)",
-                    user_name,
-                    new_intimacy
-                )
+            if new_profile:
+                store.set_profile(user_id, new_profile, user_name)
+                logger.info("[%s] プロファイルを更新しました: %s", user_name, new_profile)
+
+            if intimacy_change != 0:
+                new_intimacy, applied = store.change_intimacy(user_id, intimacy_change, user_name)
+                if applied:
+                    logger.info(
+                        "[%s] 親密度が変化しました: %d (%+d)",
+                        user_name,
+                        new_intimacy,
+                        intimacy_change
+                    )
+                else:
+                    logger.info(
+                        "[%s] 親密度の上昇要求がありましたが、1日1回の制限のため適用されませんでした。(現在: %d)",
+                        user_name,
+                        new_intimacy
+                    )
     except Exception:
         logger.error("[%s] プロファイル/親密度更新中にエラーが発生しました", user_name, exc_info=True)
+
+
+def _cancel_profile_timer(user_id: str) -> None:
+    _pending_profile_targets.pop(user_id, None)
+    task = user_profile_timers.pop(user_id, None)
+    if task is not None and not task.done():
+        task.cancel()
 
 
 def _schedule_profile_update(
@@ -128,21 +168,113 @@ def _schedule_profile_update(
     store: UserStore | None,
     current_profile: str | None = None,
     current_intimacy: int | None = None,
-) -> None:
-    """公開会話のみのセッションであればバックグラウンドでプロフィール/親密度更新を予約する。"""
-    if store is None or not user_memories.get(user_id):
-        return
+    *,
+    delay: float = 5.0,
+) -> asyncio.Task | None:
+    """公開会話のみの未分析セッションがあればバックグラウンドでプロフィール/親密度更新を予約する。"""
+    history = user_memories.get(user_id)
+    if store is None or not history:
+        return None
+    upto = min(user_analyzed_upto.get(user_id, 0), len(history))
+    if upto >= len(history):
+        return None
     if not _session_is_public_only(user_id):
         logger.info("[%s] 非公開の会話を含むためプロフィール/親密度の更新をスキップします", user_name)
-        return
+        return None
 
+    unanalyzed = list(history[upto:])
+    user_analyzed_upto[user_id] = len(history)
     profile = store.get_profile(user_id) if current_profile is None else current_profile
     intimacy = store.get_intimacy(user_id) if current_intimacy is None else current_intimacy
-    asyncio.create_task(
+    task = asyncio.create_task(
         _update_user_profile_in_background(
-            user_id, user_name, list(user_memories[user_id]), profile, intimacy, store
+            user_id,
+            user_name,
+            unanalyzed,
+            profile,
+            intimacy,
+            store,
+            delay=delay,
+            refresh_from_store=True,
         )
     )
+    _active_profile_update_tasks.add(task)
+    task.add_done_callback(_active_profile_update_tasks.discard)
+    return task
+
+
+async def _debounced_profile_update_worker(
+    user_id: str, user_name: str, store: UserStore
+) -> None:
+    try:
+        if PROFILE_UPDATE_DELAY > 0:
+            await asyncio.sleep(PROFILE_UPDATE_DELAY)
+        lock = user_locks.setdefault(user_id, asyncio.Lock())
+        async with lock:
+            _pending_profile_targets.pop(user_id, None)
+            _schedule_profile_update(user_id, user_name, store, delay=0.0)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        current = asyncio.current_task()
+        if user_profile_timers.get(user_id) is current:
+            user_profile_timers.pop(user_id, None)
+            _pending_profile_targets.pop(user_id, None)
+
+
+def _schedule_debounced_profile_update(
+    user_id: str, user_name: str, store: UserStore | None
+) -> None:
+    """reply 終了後、次の返信が無ければ一区切りとみなしてプロフィール更新を実行するタイマーを予約する。"""
+    _cancel_profile_timer(user_id)
+    history = user_memories.get(user_id)
+    if store is None or not history:
+        return
+    upto = min(user_analyzed_upto.get(user_id, 0), len(history))
+    if upto >= len(history):
+        return
+    _pending_profile_targets[user_id] = (user_name, store)
+    user_profile_timers[user_id] = asyncio.create_task(
+        _debounced_profile_update_worker(user_id, user_name, store)
+    )
+
+
+async def flush_pending_profile_updates(timeout: float = 5.0) -> None:
+    """デバウンス待機中および実行中のプロフィール更新を即時フラッシュし、完了を待つ。"""
+    pending = list(_pending_profile_targets.items())
+    for user_id, (user_name, store) in pending:
+        _cancel_profile_timer(user_id)
+        lock = user_locks.setdefault(user_id, asyncio.Lock())
+        if not lock.locked():
+            async with lock:
+                _schedule_profile_update(user_id, user_name, store, delay=0.0)
+        else:
+            _schedule_profile_update(user_id, user_name, store, delay=0.0)
+
+    tasks = [t for t in _active_profile_update_tasks if not t.done()]
+    if tasks:
+        _, pending_tasks = await asyncio.wait(tasks, timeout=timeout)
+        for task in pending_tasks:
+            task.cancel()
+
+
+def clear_runtime_state() -> None:
+    """インメモリ会話状態と待機中タイマーをすべて初期化する（主にテスト用）。"""
+    for task in list(user_profile_timers.values()):
+        if not task.done():
+            task.cancel()
+    for task in list(_active_profile_update_tasks):
+        if not task.done():
+            task.cancel()
+    user_memories.clear()
+    user_memory_audiences.clear()
+    user_turns.clear()
+    user_analyzed_upto.clear()
+    user_profile_timers.clear()
+    _pending_profile_targets.clear()
+    _active_profile_update_tasks.clear()
+    user_profile_update_locks.clear()
+    user_locks.clear()
 
 
 async def run_llm(
@@ -174,8 +306,10 @@ async def run_llm(
     lock = user_locks.setdefault(user_id, asyncio.Lock())
 
     async with lock:
-        # 新規メンション（リプライではない）なら、過去の記憶を消去
+        # 新規メンション（リプライではない）なら、未分析の前回会話を回収したうえで記憶を消去
         if not is_reply:
+            _cancel_profile_timer(user_id)
+            _schedule_profile_update(user_id, user_name, store)
             _reset_history(user_id)
             logger.debug("[%s] 新規メンションのため記憶をリセットしました", user_name)
 
@@ -199,6 +333,7 @@ async def run_llm(
         # コスト爆発防止の安全弁（保険: MAX_TURNS往復を超えたら強制リアクション終了）
         if current_turn > MAX_TURNS:
             logger.info("[%s] 会話ターン数が安全上限(%d)に達したため、リアクションで会話を終了します", user_name, current_turn)
+            _cancel_profile_timer(user_id)
             _schedule_profile_update(user_id, user_name, store)
             _reset_history(user_id)
             return {
@@ -250,8 +385,10 @@ async def run_llm(
                 user_turns[user_id] = current_turn
                 # 記憶が上限を超えたら、古いものから忘れる
                 _truncate_history(user_id)
+                _schedule_debounced_profile_update(user_id, user_name, store)
             elif action in ("react", "none"):
-                # 会話がフェードアウト（終了）したため、会話全体の履歴をもとにプロフィールを1度だけ更新
+                # 会話がフェードアウト（終了）したため、タイマーを止めて未分析分を即座に更新
+                _cancel_profile_timer(user_id)
                 _schedule_profile_update(user_id, user_name, store, user_profile, intimacy)
                 # 会話終了につきメモリをクリア
                 _reset_history(user_id)

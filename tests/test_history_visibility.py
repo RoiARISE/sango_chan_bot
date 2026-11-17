@@ -20,15 +20,9 @@ from src.utils import Audience
 
 @pytest.fixture(autouse=True)
 def clean_memory():
-    llm.user_memories.clear()
-    llm.user_memory_audiences.clear()
-    llm.user_turns.clear()
-    llm.user_locks.clear()
+    llm.clear_runtime_state()
     yield
-    llm.user_memories.clear()
-    llm.user_memory_audiences.clear()
-    llm.user_turns.clear()
-    llm.user_locks.clear()
+    llm.clear_runtime_state()
 
 
 def _reply(text: str = "わかった") -> dict:
@@ -269,6 +263,41 @@ async def test_profile_update_is_skipped_at_the_turn_limit_for_a_private_session
     assert result["reason"] == "safety_turn_limit_reached"
     update.assert_not_awaited()
     assert llm.user_memory_audiences["user-1"] == []
+
+
+async def test_debounced_profile_update_is_skipped_for_private_session(store):
+    chat = mock.AsyncMock(return_value=_reply())
+    update = mock.AsyncMock()
+
+    with mock.patch.object(llm, "PROFILE_UPDATE_DELAY", 0.01), \
+         mock.patch.object(llm.openrouter, "chat_with_history", chat), \
+         mock.patch.object(llm, "_update_user_profile_in_background", update):
+        await llm.run_llm(
+            "user-1", "みー", "ひみつ", is_reply=False, store=store, audience=_specified("user-1")
+        )
+        await asyncio.sleep(0.04)
+
+    update.assert_not_awaited()
+    assert store.get_profile("user-1") == ""
+
+
+async def test_new_mention_flush_is_skipped_when_previous_session_was_private(store):
+    chat = mock.AsyncMock(return_value=_reply())
+    update = mock.AsyncMock()
+
+    with mock.patch.object(llm, "PROFILE_UPDATE_DELAY", 60.0), \
+         mock.patch.object(llm.openrouter, "chat_with_history", chat), \
+         mock.patch.object(llm, "_update_user_profile_in_background", update):
+        await llm.run_llm(
+            "user-1", "みー", "ひみつ", is_reply=False, store=store, audience=_specified("user-1")
+        )
+        await llm.run_llm(
+            "user-1", "みー", "公開の話", is_reply=False, store=store, audience=Audience("public")
+        )
+        await asyncio.sleep(0)
+
+    update.assert_not_awaited()
+    assert store.get_profile("user-1") == ""
 
 
 async def test_mention_handler_passes_the_note_audience(handler):
