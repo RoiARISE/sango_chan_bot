@@ -474,3 +474,33 @@ async def test_flush_pending_profile_updates_runs_waiting_timers_on_shutdown(sto
     assert store.get_profile("user-1") == "朝型"
     assert store.get_intimacy("user-1") == 1
     assert "user-1" not in llm.user_profile_timers
+
+
+async def test_new_mention_convo_context_encourages_reply():
+    chat = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "💤", "reply": "おやすみー", "reason": "greeting"}
+    )
+
+    with mock.patch.object(llm.openrouter, "chat_with_history", chat):
+        await llm.run_llm("user-1", "みー", "おやすみ", is_reply=False)
+
+    convo_context = chat.await_args.kwargs["convo_context"]
+    assert "1 ターン目" in convo_context
+    assert "新規メンション" in convo_context
+    assert "言葉で返信（reply）" in convo_context
+    assert "フェードアウト" not in convo_context
+
+
+async def test_reply_turn_4_convo_context_encourages_fadeout():
+    chat = mock.AsyncMock(
+        return_value={"action": "reply", "reaction": "❤️", "reply": "うん", "reason": "ok"}
+    )
+
+    with mock.patch.object(llm.openrouter, "chat_with_history", chat):
+        for turn in range(1, 5):
+            await llm.run_llm("user-1", "みー", f"話{turn}", is_reply=(turn > 1))
+
+    convo_context = chat.await_args_list[-1].kwargs["convo_context"]
+    assert "4 ターン目" in convo_context
+    assert "フェードアウト" in convo_context
+    assert "新規メンション" not in convo_context

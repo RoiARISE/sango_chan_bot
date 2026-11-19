@@ -360,7 +360,13 @@ async def run_llm(
 
         # 会話進行コンテキストの生成
         convo_context = f"現在この相手とのスレッドでのやりとりは {current_turn} ターン目です。"
-        if current_turn >= 4:
+        if not is_reply:
+            convo_context += (
+                " これは相手からの新規メンション（1ターン目の最初の呼びかけ）であり、"
+                "あなたはまだ一度も返事をしていません。挨拶や短い言葉であっても、"
+                "まずはリアクションだけで終わらせず言葉で返信（reply）してください。"
+            )
+        elif current_turn >= 4:
             convo_context += " 話題が一区切りついている場合は、無理に会話を続けず react（リアクションのみで終了）を選択してフェードアウトしてください。"
 
         try:
